@@ -4,7 +4,7 @@ import { DeviceAudioCapabilities, AudioFormat } from '../types';
 export const useDeviceAudioCapabilities = () => {
   const [capabilities, setCapabilities] = useState<DeviceAudioCapabilities>({
     maxSampleRate: 44100,
-    supportedFormats: ['wav'],
+    supportedFormats: ['WAV'],
     deviceInfo: {
       audioContext: false,
       webAudio: false,

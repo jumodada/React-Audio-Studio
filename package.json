@@ -17,7 +17,10 @@
     "./styles": "./dist/style.css"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-select.js",
+    "dev:lib": "vite",
+    "dev:antd": "cd examples/antd-example && yarn dev",
+    "dev:basic": "cd examples/basic-example && yarn dev",
     "build": "tsc && vite build",
     "build:watch": "tsc && vite build --watch",
     "preview": "vite preview",
@@ -29,8 +32,8 @@
     "type-check": "tsc --noEmit",
     "type-check:watch": "tsc --noEmit --watch",
     "clean": "rimraf dist",
-    "dev:example": "cd examples/antd-example && npm run dev",
-    "build:example": "cd examples/antd-example && npm run build",
+    "dev:example": "cd examples/antd-example && yarn dev",
+    "build:example": "cd examples/antd-example && yarn build",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build"
   },
@@ -55,7 +58,10 @@
     "vitest": "^1.4.0"
   },
   "dependencies": {
-    "recorder-core": "^1.3.2501110"
+    "konva": "^9.3.20",
+    "peaks.js": "^3.4.1",
+    "recorder-core": "^1.3.2501110",
+    "waveform-data": "^4.5.2"
   },
   "keywords": [
     "react",

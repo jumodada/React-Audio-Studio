@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
-import { AudioProcessingParams, AudioPreset } from '../types';
+import { AudioProcessingParams } from '../types';
 
-const presetConfigs: Record<string, AudioPreset> = {
+const presetConfigs: Record<string, AudioProcessingParams> = {
   standard: {
-    outputFormat: 'opus',
+    outputFormat: 'OPUS',
     sampleRate: '44.1kHz',
     bitRate: '128',
     clarity: 60,
@@ -21,7 +21,7 @@ const presetConfigs: Record<string, AudioPreset> = {
     lowFreqClear: 50,
   },
   recommended: {
-    outputFormat: 'opus',
+    outputFormat: 'OPUS',
     sampleRate: '96kHz',
     bitRate: '160',
     clarity: 85,
@@ -39,7 +39,7 @@ const presetConfigs: Record<string, AudioPreset> = {
     lowFreqClear: 55,
   },
   highest: {
-    outputFormat: 'wav',
+    outputFormat: 'WAV',
     sampleRate: '96kHz',
     bitRate: '32',
     clarity: 75,
@@ -59,7 +59,7 @@ const presetConfigs: Record<string, AudioPreset> = {
 };
 
 const defaultParams: AudioProcessingParams = {
-  outputFormat: 'wav',
+  outputFormat: 'WAV',
   sampleRate: '96kHz',
   bitRate: '32',
   clarity: 0,
@@ -226,7 +226,7 @@ export const useAudioProcessing = (options: UseAudioProcessingOptions = {}) => {
       const renderedBuffer = await offlineContext.startRendering();
       
       let resultBlob: Blob;
-      if (params.outputFormat === 'wav') {
+      if (params.outputFormat === 'WAV') {
         const wavArrayBuffer = audioBufferToWav(renderedBuffer);
         resultBlob = new Blob([wavArrayBuffer], { type: 'audio/wav' });
       } else {

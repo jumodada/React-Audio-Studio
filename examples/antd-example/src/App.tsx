@@ -1,400 +1,349 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { 
   Layout, 
   Card, 
   Button, 
-  Slider, 
-  Select, 
   Row, 
   Col, 
   Space, 
   Typography, 
   message,
   Divider,
-  Progress,
+  Upload,
   Tabs
 } from 'antd';
 import {
   PlayCircleOutlined,
-  PauseCircleOutlined,
-  RecordStartOutlined,
-  StopOutlined,
   UploadOutlined,
   DownloadOutlined,
-  SettingOutlined
+  SettingOutlined,
+  SoundOutlined
 } from '@ant-design/icons';
 import {
-  useAudioRecording,
-  useAudioPlayer,
-  useAudioProcessing,
-  useDeviceAudioCapabilities
+  AudioRecorder,
+  AudioWaveform,
+  AudioTuner,
+  useToneTuning,
+  useDeviceAudioCapabilities,
+  type RecordingState,
+  type AudioSegment
 } from '@react-audio-studio/core';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
-const { Option } = Select;
 
 const App: React.FC = () => {
   const [messageApi, contextHolder] = message.useMessage();
   const [audioUrl, setAudioUrl] = useState<string>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [processedAudioUrl, setProcessedAudioUrl] = useState<string>('');
+  const [selectedSegment, setSelectedSegment] = useState<AudioSegment | null>(null);
+  const waveformRef = useRef<any>(null);
 
-  // 使用录音功能
-  const recording = useAudioRecording({
-    onError: (error) => messageApi.error(error),
-    onSuccess: (msg) => messageApi.success(msg),
-  });
-
-  // 使用播放器功能
-  const player = useAudioPlayer({
-    onError: (error) => messageApi.error(error),
-    onSuccess: (msg) => messageApi.success(msg),
-  });
-
-  // 使用音频处理功能
-  const processor = useAudioProcessing({
-    onError: (error) => messageApi.error(error),
-    onSuccess: (msg) => messageApi.success(msg),
+  // 使用调音功能 - 核心功能
+  const toneTuning = useToneTuning(audioUrl, {
+    clarity: 85,
+    volumeGain: 95,
+    reverb: 0,
+    noiseReduction: 20
   });
 
   // 使用设备检测功能
   const deviceCapabilities = useDeviceAudioCapabilities();
 
-  // 处理文件上传
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setAudioUrl(url);
-      player.loadAudio(url);
-    }
-  };
+  // 处理录音完成
+  const handleRecordingComplete = useCallback((url: string, blob: Blob) => {
+    setAudioUrl(url);
+    setProcessedAudioUrl('');
+    messageApi.success('录音完成！');
+  }, [messageApi]);
 
-  // 开始录音
-  const handleStartRecording = () => {
-    recording.startRecording(() => {
+  // 处理录音状态变化
+  const handleRecordingStateChange = useCallback((state: RecordingState) => {
+    if (state.isRecording) {
+      // 录音开始时清除之前的音频
       setAudioUrl('');
-      player.cleanup();
-    });
-  };
-
-  // 停止录音
-  const handleStopRecording = () => {
-    recording.stopRecording((url) => {
-      setAudioUrl(url);
-      player.loadAudio(url);
-    });
-  };
-
-  // 处理音频
-  const handleProcessAudio = async () => {
-    if (!audioUrl) {
-      messageApi.warning('请先录制或上传音频文件');
-      return;
+      setProcessedAudioUrl('');
     }
+  }, []);
 
-    try {
-      const processedBlob = await processor.processAudio(audioUrl);
-      const processedUrl = URL.createObjectURL(processedBlob);
-      setAudioUrl(processedUrl);
-      player.loadAudio(processedUrl);
-      messageApi.success('音频处理完成');
-    } catch (error) {
-      messageApi.error('音频处理失败');
-    }
-  };
+  // 处理文件上传
+  const handleFileUpload = useCallback((file: File) => {
+    const url = URL.createObjectURL(file);
+    setAudioUrl(url);
+    setProcessedAudioUrl('');
+    messageApi.success('文件上传成功！');
+    return false; // 阻止默认上传行为
+  }, [messageApi]);
 
-  // 下载音频
-  const handleDownloadAudio = () => {
+  // 处理调音后的音频变化
+  const handleTunedAudioChange = useCallback((audio: string) => {
+    setProcessedAudioUrl(audio);
+  }, []);
+
+  // 处理片段选择
+  const handleSegmentSelect = useCallback((segment: AudioSegment | null) => {
+    setSelectedSegment(segment);
+  }, []);
+
+  // 下载原始音频
+  const handleDownloadOriginal = useCallback(() => {
     if (!audioUrl) return;
     
     const a = document.createElement('a');
     a.href = audioUrl;
-    a.download = `processed_audio_${Date.now()}.${processor.params.outputFormat}`;
+    a.download = `original_audio_${Date.now()}.wav`;
     a.click();
-  };
+  }, [audioUrl]);
+
+  // 下载处理后音频
+  const handleDownloadProcessed = useCallback(async () => {
+    try {
+      const blob = await toneTuning.exportAudio();
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `processed_audio_${Date.now()}.wav`;
+        a.click();
+        URL.revokeObjectURL(url);
+        messageApi.success('音频导出成功！');
+      }
+    } catch (error) {
+      messageApi.error('音频导出失败');
+    }
+  }, [toneTuning, messageApi]);
+
+  const TabItems = [
+    {
+      key: 'recorder',
+      label: (
+        <span>
+          <SoundOutlined />
+          录音器
+        </span>
+      ),
+      children: (
+        <Card>
+          <AudioRecorder
+            onRecordingComplete={handleRecordingComplete}
+            onRecordingStateChange={handleRecordingStateChange}
+          />
+        </Card>
+      ),
+    },
+    {
+      key: 'upload',
+      label: (
+        <span>
+          <UploadOutlined />
+          文件上传
+        </span>
+      ),
+      children: (
+        <Card>
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Upload
+              beforeUpload={handleFileUpload}
+              accept="audio/*"
+              showUploadList={false}
+            >
+              <Button 
+                size="large" 
+                icon={<UploadOutlined />}
+                style={{ height: '80px', fontSize: '16px' }}
+              >
+                点击或拖拽音频文件到此处
+              </Button>
+            </Upload>
+            <Text type="secondary" style={{ display: 'block', marginTop: '16px' }}>
+              支持 MP3、WAV、M4A 等格式
+            </Text>
+          </div>
+        </Card>
+      ),
+    },
+  ];
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
       {contextHolder}
-      <Header style={{ background: '#fff', padding: '0 24px', borderBottom: '1px solid #f0f0f0' }}>
-        <Title level={3} style={{ margin: '16px 0', color: '#1890ff' }}>
-          🎵 React Audio Studio
-        </Title>
+      
+      <Header style={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+        padding: '0 24px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Title level={2} style={{ margin: 0, color: 'white' }}>
+            🎵 React Audio Studio
+          </Title>
+          <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
+            专业音频录制与调音工作台
+          </Text>
+        </div>
       </Header>
       
       <Content style={{ padding: '24px' }}>
-        <Row gutter={[16, 16]}>
-          {/* 设备信息卡片 */}
+        {/* 设备信息栏 */}
+        <Card 
+          size="small" 
+          style={{ marginBottom: '24px', background: 'rgba(255,255,255,0.9)' }}
+        >
+          <Row gutter={16} align="middle">
+            <Col>
+              <SettingOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
+            </Col>
+            <Col>
+              <Text strong>设备状态:</Text>
+            </Col>
+            <Col>
+              <Text>最大采样率: {deviceCapabilities.formatSampleRate(deviceCapabilities.maxSampleRate)}</Text>
+            </Col>
+            <Col>
+              <Text>支持格式: {deviceCapabilities.supportedFormats.join(', ')}</Text>
+            </Col>
+            <Col>
+              <Text>音频上下文: {deviceCapabilities.deviceInfo.audioContext ? '✅' : '❌'}</Text>
+            </Col>
+            <Col>
+              <Text>录音器: {deviceCapabilities.deviceInfo.mediaRecorder ? '✅' : '❌'}</Text>
+            </Col>
+          </Row>
+        </Card>
+
+        <Row gutter={[24, 24]}>
+          {/* 左侧：音频输入 */}
           <Col xs={24} lg={8}>
-            <Card title="设备信息" extra={<SettingOutlined />}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Text>最大采样率: {deviceCapabilities.formatSampleRate(deviceCapabilities.maxSampleRate)}</Text>
-                <Text>支持格式: {deviceCapabilities.supportedFormats.join(', ')}</Text>
-                <Text>音频上下文: {deviceCapabilities.deviceInfo.audioContext ? '✅' : '❌'}</Text>
-                <Text>录音器: {deviceCapabilities.deviceInfo.mediaRecorder ? '✅' : '❌'}</Text>
-              </Space>
+            <Card title="音频输入" style={{ height: '100%' }}>
+              <Tabs items={TabItems} />
             </Card>
           </Col>
 
-          {/* 录音控制卡片 */}
-          <Col xs={24} lg={8}>
-            <Card title="录音控制" extra={<RecordStartOutlined />}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <div ref={recording.recordingWaveRef} style={{ height: '60px', background: '#f5f5f5' }} />
-                <Text>录音时长: {recording.formatRecordingTime(recording.recordingDuration)}</Text>
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<RecordStartOutlined />}
-                    onClick={handleStartRecording}
-                    disabled={recording.isRecording}
-                    loading={recording.isGettingPermission}
-                  >
-                    {recording.isGettingPermission ? '获取权限中...' : '开始录音'}
-                  </Button>
-                  <Button
-                    icon={<StopOutlined />}
-                    onClick={handleStopRecording}
-                    disabled={!recording.isRecording}
-                  >
-                    停止录音
-                  </Button>
-                </Space>
-              </Space>
-            </Card>
-          </Col>
-
-          {/* 文件上传卡片 */}
-          <Col xs={24} lg={8}>
-            <Card title="文件上传" extra={<UploadOutlined />}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleFileUpload}
-                  style={{ display: 'none' }}
-                />
-                <Button
-                  type="dashed"
-                  icon={<UploadOutlined />}
-                  onClick={() => fileInputRef.current?.click()}
-                  block
-                >
-                  选择音频文件
-                </Button>
-                {audioUrl && (
-                  <Text type="success">✅ 音频文件已加载</Text>
-                )}
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-
-        <Divider />
-
-        <Row gutter={[16, 16]}>
-          {/* 音频播放器 */}
-          <Col xs={24} lg={12}>
-            <Card title="音频播放器" extra={<PlayCircleOutlined />}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Row justify="space-between">
-                  <Text>{player.formatTime(player.currentTime)}</Text>
-                  <Text>{player.formatTime(player.duration)}</Text>
-                </Row>
-                
-                <Slider
-                  min={0}
-                  max={player.duration || 1}
-                  step={0.1}
-                  value={player.currentTime}
-                  onChange={player.setCurrentTime}
-                  disabled={!audioUrl}
-                />
-                
-                <Row justify="center">
-                  <Space>
-                    <Button
-                      type="primary"
-                      size="large"
-                      icon={player.isPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                      onClick={player.togglePlay}
-                      disabled={!audioUrl || player.isLoading}
-                    >
-                      {player.isPlaying ? '暂停' : '播放'}
-                    </Button>
-                  </Space>
-                </Row>
-
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Text>音量</Text>
-                    <Slider
-                      min={0}
-                      max={1}
-                      step={0.1}
-                      value={player.volume}
-                      onChange={player.setVolume}
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Text>播放速度</Text>
-                    <Slider
-                      min={0.5}
-                      max={2}
-                      step={0.1}
-                      value={player.playbackRate}
-                      onChange={player.setPlaybackRate}
-                    />
-                  </Col>
-                </Row>
-              </Space>
-            </Card>
-          </Col>
-
-          {/* 音频处理 */}
-          <Col xs={24} lg={12}>
-            <Card title="音频处理" extra={<SettingOutlined />}>
-              <Tabs
-                items={[
-                  {
-                    key: 'presets',
-                    label: '预设',
-                    children: (
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Select
-                          placeholder="选择音频预设"
-                          style={{ width: '100%' }}
-                          onChange={processor.applyPreset}
+          {/* 右侧：波形显示和调音 */}
+          <Col xs={24} lg={16}>
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              {/* 波形显示区 */}
+              {audioUrl && (
+                <Card 
+                  title="音频波形" 
+                  extra={
+                    <Space>
+                      <Button
+                        icon={<DownloadOutlined />}
+                        onClick={handleDownloadOriginal}
+                        size="small"
+                      >
+                        下载原音频
+                      </Button>
+                      {processedAudioUrl && (
+                        <Button
+                          type="primary"
+                          icon={<DownloadOutlined />}
+                          onClick={handleDownloadProcessed}
+                          size="small"
                         >
-                          {processor.presetOptions.map(preset => (
-                            <Option key={preset} value={preset}>
-                              {preset === 'standard' ? '标准' : 
-                               preset === 'recommended' ? '推荐' : '最高质量'}
-                            </Option>
-                          ))}
-                        </Select>
-                        
-                        <Row gutter={16}>
-                          <Col span={8}>
-                            <Text>输出格式</Text>
-                            <Select
-                              value={processor.params.outputFormat}
-                              onChange={(value) => processor.updateParams({ outputFormat: value })}
-                              style={{ width: '100%' }}
-                            >
-                              <Option value="wav">WAV</Option>
-                              <Option value="mp3">MP3</Option>
-                              <Option value="opus">OPUS</Option>
-                            </Select>
-                          </Col>
-                          <Col span={8}>
-                            <Text>采样率</Text>
-                            <Select
-                              value={processor.params.sampleRate}
-                              onChange={(value) => processor.updateParams({ sampleRate: value })}
-                              style={{ width: '100%' }}
-                            >
-                              <Option value="44.1kHz">44.1kHz</Option>
-                              <Option value="48kHz">48kHz</Option>
-                              <Option value="96kHz">96kHz</Option>
-                            </Select>
-                          </Col>
-                          <Col span={8}>
-                            <Text>比特率</Text>
-                            <Select
-                              value={processor.params.bitRate}
-                              onChange={(value) => processor.updateParams({ bitRate: value })}
-                              style={{ width: '100%' }}
-                            >
-                              <Option value="128">128kbps</Option>
-                              <Option value="192">192kbps</Option>
-                              <Option value="320">320kbps</Option>
-                            </Select>
-                          </Col>
-                        </Row>
-                      </Space>
-                    ),
-                  },
-                  {
-                    key: 'effects',
-                    label: '效果调节',
-                    children: (
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Text>音量增益</Text>
-                            <Slider
-                              min={0}
-                              max={100}
-                              value={processor.params.volumeGain}
-                              onChange={(value) => processor.updateParams({ volumeGain: value })}
-                            />
-                          </Col>
-                          <Col span={12}>
-                            <Text>清晰度</Text>
-                            <Slider
-                              min={0}
-                              max={100}
-                              value={processor.params.clarity}
-                              onChange={(value) => processor.updateParams({ clarity: value })}
-                            />
-                          </Col>
-                        </Row>
-                        
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Text>降噪</Text>
-                            <Slider
-                              min={0}
-                              max={100}
-                              value={processor.params.noiseReduction}
-                              onChange={(value) => processor.updateParams({ noiseReduction: value })}
-                            />
-                          </Col>
-                          <Col span={12}>
-                            <Text>立体声宽度</Text>
-                            <Slider
-                              min={0}
-                              max={100}
-                              value={processor.params.stereoWidth}
-                              onChange={(value) => processor.updateParams({ stereoWidth: value })}
-                            />
-                          </Col>
-                        </Row>
-                      </Space>
-                    ),
-                  },
-                ]}
-              />
-              
-              <Divider />
-              
-              <Row justify="space-between">
-                <Button onClick={processor.resetParams}>
-                  重置参数
-                </Button>
-                <Space>
-                  <Button
-                    type="primary"
-                    onClick={handleProcessAudio}
-                    disabled={!audioUrl}
-                  >
-                    处理音频
-                  </Button>
-                  <Button
-                    icon={<DownloadOutlined />}
-                    onClick={handleDownloadAudio}
-                    disabled={!audioUrl}
-                  >
-                    下载
-                  </Button>
-                </Space>
-              </Row>
-            </Card>
+                          下载调音后
+                        </Button>
+                      )}
+                    </Space>
+                  }
+                >
+                  <AudioWaveform
+                    ref={waveformRef}
+                    audioUrl={audioUrl}
+                    height={140}
+                    onSegmentSelect={handleSegmentSelect}
+                  />
+                  
+                  {selectedSegment && (
+                    <div style={{ 
+                      marginTop: '16px', 
+                      padding: '12px', 
+                      background: '#f6ffed', 
+                      border: '1px solid #b7eb8f',
+                      borderRadius: '6px'
+                    }}>
+                      <Text>
+                        已选择区间: {selectedSegment.startTime.toFixed(2)}s - {selectedSegment.endTime.toFixed(2)}s
+                        （时长: {(selectedSegment.endTime - selectedSegment.startTime).toFixed(2)}s）
+                      </Text>
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* 实时调音面板 */}
+              {audioUrl && (
+                <Card 
+                  title="实时调音器" 
+                  extra={
+                    <Space>
+                      {toneTuning.isProcessing && (
+                        <Text type="secondary">处理中...</Text>
+                      )}
+                      <Button onClick={toneTuning.resetParams} size="small">
+                        重置参数
+                      </Button>
+                    </Space>
+                  }
+                >
+                  <AudioTuner
+                    audioUrl={audioUrl}
+                    onAudioChange={handleTunedAudioChange}
+                  />
+                </Card>
+              )}
+
+              {/* 对比播放区 */}
+              {processedAudioUrl && (
+                <Card title="音频对比">
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <div style={{ marginBottom: '8px' }}>
+                        <Text strong>原始音频:</Text>
+                      </div>
+                      <audio
+                        controls
+                        src={audioUrl}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                    <Col span={12}>
+                      <div style={{ marginBottom: '8px' }}>
+                        <Text strong>调音后音频:</Text>
+                      </div>
+                      <audio
+                        controls
+                        src={processedAudioUrl}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                  </Row>
+                </Card>
+              )}
+            </Space>
           </Col>
         </Row>
+
+        {/* 使用提示 */}
+        {!audioUrl && (
+          <Card 
+            style={{ 
+              marginTop: '24px', 
+              background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+              border: 'none'
+            }}
+          >
+            <div style={{ textAlign: 'center', color: 'white' }}>
+              <Title level={3} style={{ color: 'white', marginBottom: '16px' }}>
+                🎤 开始您的音频之旅
+              </Title>
+              <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px' }}>
+                录制新音频或上传现有文件，然后使用我们强大的实时调音功能优化您的音频质量
+              </Text>
+            </div>
+          </Card>
+        )}
       </Content>
     </Layout>
   );

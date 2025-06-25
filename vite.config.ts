@@ -19,11 +19,14 @@ export default defineConfig({
       fileName: (format) => `index.${format}.js`,
     },
     rollupOptions: {
-      external: ['react', 'react-dom'],
+      external: ['react', 'react-dom', 'react/jsx-runtime', 'peaks.js', 'recorder-core'],
       output: {
         globals: {
           react: 'React',
           'react-dom': 'ReactDOM',
+          'react/jsx-runtime': 'React',
+          'peaks.js': 'Peaks',
+          'recorder-core': 'Recorder',
         },
       },
     },

@@ -1,6 +1,6 @@
-# React Audio Studio
+# 🎵 React Audio Studio
 
-🎵 一个现代化的React音频录制和处理工作台组件库
+一个现代化的React音频录制和处理工作台组件库，基于peaks.js构建，提供专业级的音频录制、实时调音和波形显示功能。
 
 [![npm version](https://badge.fury.io/js/@react-audio-studio/core.svg)](https://badge.fury.io/js/@react-audio-studio/core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -8,372 +8,272 @@
 
 ## ✨ 特性
 
-- 🎤 **音频录制** - 支持高质量音频录制，实时波形显示
-- 🔊 **音频播放** - 功能完整的音频播放器，支持播放控制
-- ⚡ **音频处理** - 内置音频处理算法，支持降噪、均衡器等
-- 📱 **设备检测** - 自动检测设备音频能力和兼容性
-- 🎨 **UI 友好** - 与 Ant Design 完美集成
-- 🔧 **Hook 架构** - 基于 React Hooks 的现代化API设计
-- 📦 **TypeScript** - 完整的类型定义支持
-- 🚀 **现代构建** - 使用 Vite 构建，支持 ESM 和 UMD
+### 🎤 核心功能
+- **在线录音器** - 支持暂停/继续，实时音量显示
+- **实时调音** - 参数调整时音频实时更新，无需等待
+- **波形显示** - 基于peaks.js的专业波形可视化
+- **音频片段选择** - 可视化选择和播放音频片段
+- **多格式支持** - WAV、OPUS、MP3格式输出
 
-## 📦 安装
+### 🔧 专业调音功能
+- **智能预设** - 标准、推荐、最高质量三种预设模式
+- **专业均衡器** - 低频/中频/高频独立调节
+- **人声优化** - 人声清晰度、高频舒适度、低频通透感
+- **音质增强** - 清晰度、音量增益、降噪、低音增强
+- **空间效果** - 混响、立体声宽度调节
+
+## 🚀 快速开始
+
+### 安装
 
 ```bash
 npm install @react-audio-studio/core
 # 或
 yarn add @react-audio-studio/core
-# 或
-pnpm add @react-audio-studio/core
 ```
 
-## 🚀 快速开始
+### 基础用法
 
-### 基础录音功能
+#### 1. 在线录音器
 
 ```tsx
-import React from 'react';
-import { useAudioRecording } from '@react-audio-studio/core';
+import { AudioRecorder } from '@react-audio-studio/core';
 
-function AudioRecorder() {
-  const recording = useAudioRecording({
-    onError: (error) => console.error('录音错误:', error),
-    onSuccess: (message) => console.log('录音成功:', message),
-  });
-
-  const handleStartRecording = () => {
-    recording.startRecording(() => {
-      console.log('开始录音');
-    });
-  };
-
-  const handleStopRecording = () => {
-    recording.stopRecording((audioUrl) => {
-      console.log('录音完成，音频URL:', audioUrl);
-    });
+function App() {
+  const handleRecordingComplete = (audioUrl: string, audioBlob: Blob) => {
+    console.log('录音完成:', audioUrl);
   };
 
   return (
-    <div>
-      <div ref={recording.recordingWaveRef} style={{ height: '60px' }} />
-      <p>录音时长: {recording.formatRecordingTime(recording.recordingDuration)}</p>
-      <button 
-        onClick={handleStartRecording} 
-        disabled={recording.isRecording}
-      >
-        {recording.isGettingPermission ? '获取权限中...' : '开始录音'}
-      </button>
-      <button 
-        onClick={handleStopRecording} 
-        disabled={!recording.isRecording}
-      >
-        停止录音
-      </button>
-    </div>
+    <AudioRecorder
+      onRecordingComplete={handleRecordingComplete}
+      onRecordingStateChange={(state) => console.log('录音状态:', state)}
+    />
   );
 }
 ```
 
-### 音频播放器
+#### 2. 实时调音 Hook（核心功能）
 
 ```tsx
-import React, { useState } from 'react';
-import { useAudioPlayer } from '@react-audio-studio/core';
+import { useToneTuning } from '@react-audio-studio/core';
 
-function AudioPlayer() {
-  const [audioUrl, setAudioUrl] = useState('');
-  const player = useAudioPlayer({
-    onError: (error) => console.error('播放错误:', error),
-  });
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setAudioUrl(url);
-      player.loadAudio(url);
+function AudioTuningApp() {
+  const { audio, isProcessing, updateParams, resetParams, exportAudio } = useToneTuning(
+    audioUrl, // 音频源文件URL
+    {
+      clarity: 85,
+      volumeGain: 95,
+      reverb: 0,
+      noiseReduction: 20
     }
+  );
+
+  // 实时调整参数
+  const handleClarityChange = (value: number) => {
+    updateParams({ clarity: value }); // 参数变化时音频实时更新
   };
 
   return (
     <div>
-      <input type="file" accept="audio/*" onChange={handleFileUpload} />
+      {/* 调音后的音频会实时更新 */}
+      {audio && <audio controls src={audio} />}
       
-      <div>
-        <span>{player.formatTime(player.currentTime)}</span>
-        <input
-          type="range"
-          min={0}
-          max={player.duration || 1}
-          step={0.1}
-          value={player.currentTime}
-          onChange={(e) => player.setCurrentTime(Number(e.target.value))}
-        />
-        <span>{player.formatTime(player.duration)}</span>
-      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={85}
+        onChange={(e) => handleClarityChange(Number(e.target.value))}
+      />
       
-      <button onClick={player.togglePlay} disabled={!audioUrl}>
-        {player.isPlaying ? '暂停' : '播放'}
-      </button>
-      
-      <div>
-        <label>音量: </label>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.1}
-          value={player.volume}
-          onChange={(e) => player.setVolume(Number(e.target.value))}
-        />
-      </div>
+      <button onClick={resetParams}>重置参数</button>
+      <button onClick={() => exportAudio()}>导出音频</button>
     </div>
   );
 }
 ```
 
-### 音频处理
+#### 3. 波形显示组件
 
 ```tsx
-import React from 'react';
-import { useAudioProcessing } from '@react-audio-studio/core';
+import { AudioWaveform } from '@react-audio-studio/core';
 
-function AudioProcessor() {
-  const processor = useAudioProcessing({
-    onError: (error) => console.error('处理错误:', error),
-    onSuccess: (message) => console.log('处理成功:', message),
-  });
-
-  const handleProcessAudio = async (audioUrl: string) => {
-    try {
-      const processedBlob = await processor.processAudio(audioUrl);
-      const processedUrl = URL.createObjectURL(processedBlob);
-      console.log('处理完成:', processedUrl);
-    } catch (error) {
-      console.error('处理失败:', error);
-    }
+function WaveformApp() {
+  const handleSegmentSelect = (segment) => {
+    console.log('选中片段:', segment);
   };
 
   return (
-    <div>
-      <div>
-        <label>输出格式: </label>
-        <select 
-          value={processor.params.outputFormat}
-          onChange={(e) => processor.updateParams({ 
-            outputFormat: e.target.value as any 
-          })}
-        >
-          <option value="wav">WAV</option>
-          <option value="mp3">MP3</option>
-          <option value="opus">OPUS</option>
-        </select>
-      </div>
-      
-      <div>
-        <label>降噪: </label>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={processor.params.noiseReduction}
-          onChange={(e) => processor.updateParams({ 
-            noiseReduction: Number(e.target.value) 
-          })}
-        />
-      </div>
-      
-      <button onClick={() => processor.applyPreset('recommended')}>
-        应用推荐预设
-      </button>
-      
-      <button onClick={() => processor.resetParams()}>
-        重置参数
-      </button>
-    </div>
+    <AudioWaveform
+      audioUrl="path/to/audio.wav"
+      height={120}
+      onSegmentSelect={handleSegmentSelect}
+      onTimeUpdate={(time) => console.log('播放时间:', time)}
+    />
   );
 }
 ```
 
-## 🎯 核心 Hooks
+#### 4. 完整的音频调音器
 
-### useAudioRecording
+```tsx
+import { AudioTuner } from '@react-audio-studio/core';
 
-音频录制功能Hook
+function FullTunerApp() {
+  const handleAudioChange = (processedAudioUrl: string) => {
+    console.log('调音后音频:', processedAudioUrl);
+  };
 
-**参数:**
-- `onError?: (error: string) => void` - 错误回调
-- `onSuccess?: (message: string) => void` - 成功回调
-- `enableWaveform?: boolean` - 是否启用波形显示
+  return (
+    <AudioTuner
+      audioUrl="path/to/audio.wav"
+      onAudioChange={handleAudioChange}
+      onParamsChange={(params) => console.log('参数变化:', params)}
+    />
+  );
+}
+```
 
-**返回值:**
-- `isRecording: boolean` - 是否正在录音
-- `recordingDuration: number` - 录音时长（秒）
-- `startRecording: (onClear: () => void) => void` - 开始录音
-- `stopRecording: (onGenerated: (url: string) => void) => void` - 停止录音
-- `recordingWaveRef: RefObject<HTMLDivElement>` - 波形显示容器引用
+## 🎯 核心 API
 
-### useAudioPlayer
+### useToneTuning Hook
 
-音频播放功能Hook
+实时音频调音的核心Hook，参数变化时音频立即更新。
 
-**参数:**
-- `onError?: (error: string) => void` - 错误回调
-- `onSuccess?: (message: string) => void` - 成功回调
+```tsx
+const {
+  audio,           // 处理后的音频URL，实时更新
+  isProcessing,    // 是否正在处理
+  updateParams,    // 更新参数函数
+  resetParams,     // 重置参数
+  exportAudio      // 导出音频Blob
+} = useToneTuning(audioSource, initialParams);
+```
 
-**返回值:**
-- `isPlaying: boolean` - 是否正在播放
-- `currentTime: number` - 当前播放时间
-- `duration: number` - 音频总时长
-- `volume: number` - 音量（0-1）
-- `loadAudio: (url: string) => void` - 加载音频
-- `togglePlay: () => void` - 播放/暂停切换
+### AudioProcessingParams
 
-### useAudioProcessing
+```tsx
+interface AudioProcessingParams {
+  // 基础设置
+  outputFormat: 'WAV' | 'OPUS' | 'MP3';
+  sampleRate: '22.05kHz' | '44.1kHz' | '48kHz' | '96kHz';
+  bitRate: '32' | '64' | '128' | '160' | '192' | '256' | '320';
+  
+  // 音质增强
+  clarity: number;         // 清晰度 0-100
+  volumeGain: number;      // 音量增益 0-100
+  noiseReduction: number;  // 降噪 0-100
+  bassBoost: number;       // 低音增强 0-100
+  
+  // 均衡器
+  lowFreq: number;         // 低频 -20到+20dB
+  midFreq: number;         // 中频 -20到+20dB
+  highFreq: number;        // 高频 -20到+20dB
+  
+  // 专业调音
+  voiceMidFreq: number;    // 人声清晰度 0-100
+  highFreqSmooth: number;  // 高频舒适度 0-100
+  lowFreqClear: number;    // 低频通透感 0-100
+  
+  // 空间效果
+  reverb: number;          // 混响 0-100
+  decayTime: number;       // 衰减时间 0-100
+  stereoWidth: number;     // 立体声宽度 0-100
+}
+```
 
-音频处理功能Hook
+## 📱 开发和示例
 
-**参数:**
-- `onError?: (error: string) => void` - 错误回调
-- `onSuccess?: (message: string) => void` - 成功回调
-
-**返回值:**
-- `params: AudioProcessingParams` - 当前处理参数
-- `updateParams: (updates: Partial<AudioProcessingParams>) => void` - 更新参数
-- `processAudio: (url: string) => Promise<Blob>` - 处理音频
-- `applyPreset: (name: string) => void` - 应用预设
-
-### useDeviceAudioCapabilities
-
-设备音频能力检测Hook
-
-**返回值:**
-- `maxSampleRate: number` - 最大支持采样率
-- `supportedFormats: AudioFormat[]` - 支持的音频格式
-- `deviceInfo: DeviceInfo` - 设备信息
-
-## 🏗️ 开发
-
-### 克隆项目
+### 启动开发环境
 
 ```bash
+# 克隆项目
 git clone https://github.com/your-username/react-audio-studio.git
 cd react-audio-studio
-```
 
-### 安装依赖
-
-```bash
-npm install
-# 或
+# 安装依赖
 yarn install
+
+# 启动开发环境（会提供选择菜单）
+yarn dev
 ```
 
-### 开发模式
+开发脚本提供三个选项：
+1. **Antd 示例** (推荐) - 完整功能演示
+2. **Basic 示例** - 基础用法示例  
+3. **组件库开发模式** - 用于开发组件库本身
 
-```bash
-npm run dev
-```
+### 示例应用
 
-### 构建
+#### Antd 示例
+完整的音频工作台，包含：
+- 录音器界面
+- 实时调音面板
+- 波形显示和片段选择
+- 音频对比播放
+- 参数预设和导出功能
 
-```bash
-npm run build
-```
+#### Basic 示例
+简单的使用示例，展示各个组件的基本用法。
 
-### 运行示例
+## 🔧 技术栈
 
-```bash
-npm run dev:example
-```
+- **React 18+** - 现代React特性
+- **TypeScript** - 类型安全
+- **Peaks.js** - 专业波形显示
+- **Web Audio API** - 音频处理
+- **MediaRecorder API** - 音频录制
+- **recorder-core** - 录音核心库
 
-### 类型检查
+## 📦 组件列表
 
-```bash
-npm run type-check
-```
+### 核心组件
+- `AudioRecorder` - 录音组件
+- `AudioWaveform` - 波形显示组件  
+- `AudioTuner` - 音频调音组件
 
-### 代码检查
+### 核心 Hooks
+- `useToneTuning` - 实时调音Hook ⭐
+- `useAudioRecorder` - 录音Hook
+- `useAudioPlayer` - 音频播放Hook
+- `useAudioProcessing` - 音频处理Hook
+- `useDeviceAudioCapabilities` - 设备能力检测
 
-```bash
-npm run lint
-npm run lint:fix
-```
+## 🎨 设计理念
 
-## 📁 项目结构
+### 实时性优先
+- 参数调整时音频立即更新，无需点击"应用"按钮
+- 300ms防抖优化，避免频繁处理
+- 流畅的用户体验
 
-```
-react-audio-studio/
-├── src/                    # 源代码
-│   ├── hooks/             # React Hooks
-│   ├── types/             # TypeScript 类型定义
-│   └── index.ts           # 入口文件
-├── examples/              # 示例项目
-│   ├── basic-example/     # 基础示例
-│   └── antd-example/      # Ant Design 集成示例
-├── dist/                  # 构建输出
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── README.md
-```
+### 专业级功能
+- 基于Web Audio API的专业音频处理
+- 支持多种音频格式和采样率
+- 完整的均衡器和音效处理
 
-## 🌟 示例项目
+### 易用性设计
+- 直观的组件API设计
+- 完整的TypeScript类型支持
+- 丰富的预设配置
 
-### Ant Design 集成示例
+## 🔮 roadmap
 
-本项目提供了一个完整的 Ant Design 集成示例，展示了如何在实际项目中使用所有功能。
-
-```bash
-cd examples/antd-example
-npm install
-npm run dev
-```
-
-示例包含：
-- 完整的录音工作台
-- 音频播放控制面板
-- 音频处理参数调节
-- 设备兼容性检测
-- 现代化的UI界面
-
-## 🤝 贡献
-
-欢迎提交 issue 和 pull request！
-
-### 开发指南
-
-1. Fork 本仓库
-2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交你的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开一个 Pull Request
-
-### 代码规范
-
-- 使用 TypeScript
-- 遵循 ESLint 规则
-- 编写单元测试
-- 更新相关文档
+- [ ] 支持更多音频格式（FLAC、AAC等）
+- [ ] 添加音频可视化效果
+- [ ] 实时音频流处理
+- [ ] 音频文件批量处理
+- [ ] VST插件支持
+- [ ] 移动端优化
 
 ## 📄 许可证
 
-本项目基于 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+MIT License
 
-## 🙏 致谢
+## 🤝 贡献
 
-- [Recorder Core](https://github.com/xiangyuecn/Recorder) - 音频录制核心库
-- [Ant Design](https://ant.design/) - UI 组件库
-- [Vite](https://vitejs.dev/) - 构建工具
-
-## 📞 支持
-
-如果你有任何问题或建议，请：
-
-- 提交 [Issue](https://github.com/your-username/react-audio-studio/issues)
-- 发送邮件到 your-email@example.com
-- 加入我们的讨论群
+欢迎提交 Issue 和 Pull Request！
 
 ---
 
-⭐ 如果这个项目对你有帮助，请给我们一个星标！ 
+**专业提示**: 使用 `useToneTuning` Hook 时，`const {audio} = useToneTuning(audioSource, params)` 中的 `audio` 会在参数变化时实时更新，可以直接用于 `<audio>` 标签或其他播放器组件。 
