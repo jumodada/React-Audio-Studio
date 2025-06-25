@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AudioTunerProps, AudioProcessingParams, AudioPreset } from '../types';
+import React, { useCallback, useState, useEffect } from 'react';
+import { AudioTunerProps, AudioProcessingParams, AudioPreset, AudioProcessingError } from '../types';
 import { useToneTuning } from '../hooks/useToneTuning';
 
 export const AudioTuner: React.FC<AudioTunerProps> = ({
@@ -10,518 +10,339 @@ export const AudioTuner: React.FC<AudioTunerProps> = ({
   className,
   style
 }) => {
-  const { audio, isProcessing, updateParams, resetParams, exportAudio } = useToneTuning(
-    audioUrl,
-    initialParams
-  );
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [processedAudioUrl, setProcessedAudioUrl] = useState<string>('');
 
-  const [currentParams, setCurrentParams] = useState<AudioProcessingParams>({
-    outputFormat: 'WAV',
-    sampleRate: '96kHz',
-    bitRate: '160',
-    clarity: 85,
-    volumeGain: 95,
-    reverb: 0,
-    decayTime: 15,
-    stereoWidth: 25,
-    noiseReduction: 20,
-    lowFreq: -10,
-    midFreq: 0,
-    highFreq: 6,
-    bassBoost: 25,
-    voiceMidFreq: 60,
-    highFreqSmooth: 45,
-    lowFreqClear: 55,
-    ...initialParams
+  const {
+    params,
+    isProcessing,
+    updateParams,
+    resetParams,
+    applyPreset,
+    processAudio,
+    presetConfigs
+  } = useToneTuning(audioUrl, initialParams, {
+    onAudioChange: useCallback((audioUrl: string) => {
+      setProcessedAudioUrl(audioUrl);
+      onAudioChange?.(audioUrl);
+    }, [onAudioChange]),
+    onProcessingChange: useCallback((_processing: boolean) => {
+      // 可以在这里添加处理状态变化的逻辑
+    }, []),
+    onError: useCallback((error: AudioProcessingError) => {
+      setErrorMessage(error.message);
+    }, [])
   });
 
-  // 监听音频变化
+  // 当参数变化时通知父组件
   useEffect(() => {
-    if (onAudioChange && audio) {
-      onAudioChange(audio);
-    }
-  }, [audio, onAudioChange]);
+    onParamsChange?.(params);
+  }, [params, onParamsChange]);
 
-  // 监听参数变化
+  // 初始处理音频
   useEffect(() => {
-    if (onParamsChange) {
-      onParamsChange(currentParams);
+    if (audioUrl) {
+      setErrorMessage('');
+      processAudio();
     }
-  }, [currentParams, onParamsChange]);
+  }, [audioUrl, processAudio]);
 
   const handleParamChange = useCallback((key: keyof AudioProcessingParams, value: any) => {
-    const newParams = { ...currentParams, [key]: value };
-    setCurrentParams(newParams);
+    setErrorMessage('');
     updateParams({ [key]: value });
-  }, [currentParams, updateParams]);
+  }, [updateParams]);
 
-  const handlePresetChange = useCallback((preset: AudioPreset) => {
-    // 预设配置映射
-    const presets: Record<AudioPreset, Partial<AudioProcessingParams>> = {
-      standard: {
-        clarity: 60,
-        volumeGain: 55,
-        reverb: 0,
-        decayTime: 20,
-        stereoWidth: 30,
-        noiseReduction: 40,
-        lowFreq: -8,
-        midFreq: 2,
-        highFreq: 4,
-        bassBoost: 15,
-        voiceMidFreq: 50,
-        highFreqSmooth: 50,
-        lowFreqClear: 50,
-      },
-      recommended: {
-        clarity: 85,
-        volumeGain: 95,
-        reverb: 0,
-        decayTime: 15,
-        stereoWidth: 25,
-        noiseReduction: 20,
-        lowFreq: -10,
-        midFreq: 0,
-        highFreq: 6,
-        bassBoost: 25,
-        voiceMidFreq: 60,
-        highFreqSmooth: 45,
-        lowFreqClear: 55,
-      },
-      highest: {
-        clarity: 75,
-        volumeGain: 85,
-        reverb: 0,
-        decayTime: 15,
-        stereoWidth: 45,
-        noiseReduction: 40,
-        lowFreq: -5,
-        midFreq: 4,
-        highFreq: 2,
-        bassBoost: 30,
-        voiceMidFreq: 75,
-        highFreqSmooth: 70,
-        lowFreqClear: 65,
-      },
-      custom: currentParams
-    };
-
-    const presetParams = presets[preset];
-    const newParams = { ...currentParams, ...presetParams };
-    setCurrentParams(newParams);
-    updateParams(presetParams);
-  }, [currentParams, updateParams]);
+  const handlePresetSelect = useCallback((preset: AudioPreset) => {
+    setErrorMessage('');
+    applyPreset(preset);
+  }, [applyPreset]);
 
   const handleReset = useCallback(() => {
+    setErrorMessage('');
     resetParams();
-    setCurrentParams({
-      outputFormat: 'WAV',
-      sampleRate: '96kHz',
-      bitRate: '160',
-      clarity: 85,
-      volumeGain: 95,
-      reverb: 0,
-      decayTime: 15,
-      stereoWidth: 25,
-      noiseReduction: 20,
-      lowFreq: -10,
-      midFreq: 0,
-      highFreq: 6,
-      bassBoost: 25,
-      voiceMidFreq: 60,
-      highFreqSmooth: 45,
-      lowFreqClear: 55,
-    });
   }, [resetParams]);
 
-  const handleExport = useCallback(async () => {
-    try {
-      const blob = await exportAudio();
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `tuned_audio.${currentParams.outputFormat.toLowerCase()}`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (error) {
-      console.error('导出音频失败:', error);
-    }
-  }, [exportAudio, currentParams.outputFormat]);
+  const formatLabel = (key: string): string => {
+    const labels: Record<string, string> = {
+      clarity: '清晰度',
+      volumeGain: '音量增益',
+      reverb: '混响',
+      decayTime: '衰减时间',
+      stereoWidth: '立体声宽度',
+      noiseReduction: '降噪',
+      lowFreq: '低频均衡',
+      midFreq: '中频均衡',
+      highFreq: '高频均衡',
+      bassBoost: '低音增强',
+      voiceMidFreq: '人声清晰度',
+      highFreqSmooth: '高频舒适度',
+      lowFreqClear: '低频通透感'
+    };
+    return labels[key] || key;
+  };
 
-  const SliderControl: React.FC<{
-    label: string;
-    value: number;
-    min: number;
-    max: number;
-    step?: number;
-    onChange: (value: number) => void;
-    unit?: string;
-  }> = ({ label, value, min, max, step = 1, onChange, unit = '' }) => (
-    <div style={{ marginBottom: '15px' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '5px'
-      }}>
-        <label style={{ fontSize: '14px', fontWeight: '500' }}>{label}</label>
-        <span style={{ fontSize: '12px', color: '#666' }}>
-          {value}{unit}
-        </span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{
-          width: '100%',
-          height: '6px',
-          borderRadius: '3px',
-          background: '#ddd',
-          outline: 'none',
-          cursor: 'pointer'
-        }}
-      />
-    </div>
-  );
+  const getSliderProps = (key: keyof AudioProcessingParams) => {
+    const ranges: Record<string, { min: number; max: number; step: number }> = {
+      clarity: { min: 0, max: 100, step: 1 },
+      volumeGain: { min: 0, max: 100, step: 1 },
+      reverb: { min: 0, max: 100, step: 1 },
+      decayTime: { min: 0, max: 100, step: 1 },
+      stereoWidth: { min: 0, max: 100, step: 1 },
+      noiseReduction: { min: 0, max: 100, step: 1 },
+      lowFreq: { min: -20, max: 20, step: 1 },
+      midFreq: { min: -20, max: 20, step: 1 },
+      highFreq: { min: -20, max: 20, step: 1 },
+      bassBoost: { min: 0, max: 100, step: 1 },
+      voiceMidFreq: { min: 0, max: 100, step: 1 },
+      highFreqSmooth: { min: 0, max: 100, step: 1 },
+      lowFreqClear: { min: 0, max: 100, step: 1 }
+    };
+    return ranges[key] || { min: 0, max: 100, step: 1 };
+  };
 
-  const SelectControl: React.FC<{
-    label: string;
-    value: string;
-    options: string[];
-    onChange: (value: string) => void;
-  }> = ({ label, value, options, onChange }) => (
-    <div style={{ marginBottom: '15px' }}>
-      <label style={{ 
-        display: 'block', 
-        fontSize: '14px', 
-        fontWeight: '500',
-        marginBottom: '5px'
-      }}>
-        {label}
-      </label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: '100%',
-          padding: '8px',
-          border: '1px solid #ddd',
-          borderRadius: '4px',
-          fontSize: '14px'
-        }}
-      >
-        {options.map(option => (
-          <option key={option} value={option}>{option}</option>
-        ))}
-      </select>
-    </div>
-  );
+  const sliderKeys: (keyof AudioProcessingParams)[] = [
+    'clarity', 'volumeGain', 'noiseReduction', 'lowFreq', 'midFreq', 'highFreq',
+    'bassBoost', 'voiceMidFreq', 'highFreqSmooth', 'lowFreqClear', 'reverb', 'stereoWidth'
+  ];
 
   return (
     <div className={className} style={style}>
       <div style={{
+        padding: '20px',
         border: '1px solid #ddd',
         borderRadius: '8px',
         backgroundColor: '#f9f9f9'
       }}>
-        {/* 头部控制区 */}
-        <div style={{
-          padding: '20px',
-          borderBottom: '1px solid #eee'
-        }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '15px'
-          }}>
-            <h3 style={{ margin: 0, color: '#333' }}>音频调音器</h3>
-            {isProcessing && (
-              <div style={{
-                color: '#007bff',
-                fontSize: '14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <div style={{
-                  width: '12px',
-                  height: '12px',
-                  borderRadius: '50%',
-                  backgroundColor: '#007bff',
-                  animation: 'pulse 1s infinite'
-                }} />
-                处理中...
-              </div>
-            )}
+        {/* 预设选择 */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '16px' }}>
+            音质预设
           </div>
-
-          {/* 预设和控制按钮 */}
-          <div style={{
-            display: 'flex',
-            gap: '10px',
-            flexWrap: 'wrap',
-            marginBottom: '15px'
-          }}>
-            <button
-              onClick={() => handlePresetChange('standard')}
-              style={{
-                padding: '8px 16px',
-                border: '1px solid #007bff',
-                borderRadius: '4px',
-                backgroundColor: 'white',
-                color: '#007bff',
-                cursor: 'pointer',
-                fontSize: '14px'
-              }}
-            >
-              标准模式
-            </button>
-            <button
-              onClick={() => handlePresetChange('recommended')}
-              style={{
-                padding: '8px 16px',
-                border: 'none',
-                borderRadius: '4px',
-                backgroundColor: '#007bff',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: '14px'
-              }}
-            >
-              推荐模式
-            </button>
-            <button
-              onClick={() => handlePresetChange('highest')}
-              style={{
-                padding: '8px 16px',
-                border: '1px solid #28a745',
-                borderRadius: '4px',
-                backgroundColor: 'white',
-                color: '#28a745',
-                cursor: 'pointer',
-                fontSize: '14px'
-              }}
-            >
-              最高质量
-            </button>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {Object.keys(presetConfigs).map((preset) => (
+              <button
+                key={preset}
+                onClick={() => handlePresetSelect(preset as AudioPreset)}
+                disabled={isProcessing}
+                style={{
+                  padding: '8px 16px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  backgroundColor: 'white',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  opacity: isProcessing ? 0.6 : 1
+                }}
+              >
+                {preset === 'standard' ? '标准' :
+                 preset === 'recommended' ? '推荐' :
+                 preset === 'highest' ? '最高' : '自定义'}
+              </button>
+            ))}
             <button
               onClick={handleReset}
+              disabled={isProcessing}
               style={{
                 padding: '8px 16px',
                 border: '1px solid #6c757d',
                 borderRadius: '4px',
-                backgroundColor: 'white',
-                color: '#6c757d',
-                cursor: 'pointer',
-                fontSize: '14px'
+                backgroundColor: '#6c757d',
+                color: 'white',
+                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                opacity: isProcessing ? 0.6 : 1
               }}
             >
               重置
             </button>
-            <button
-              onClick={handleExport}
-              disabled={!audio || isProcessing}
-              style={{
-                padding: '8px 16px',
-                border: 'none',
-                borderRadius: '4px',
-                backgroundColor: audio && !isProcessing ? '#28a745' : '#ccc',
-                color: 'white',
-                cursor: audio && !isProcessing ? 'pointer' : 'not-allowed',
-                fontSize: '14px'
-              }}
-            >
-              导出音频
-            </button>
           </div>
+        </div>
 
-          {/* 音频预览 */}
-          {audio && (
-            <div style={{
-              padding: '15px',
-              backgroundColor: 'white',
-              borderRadius: '6px',
-              border: '1px solid #e9ecef'
-            }}>
-              <div style={{ marginBottom: '10px', fontSize: '14px', color: '#666' }}>
-                调音后预览:
-              </div>
-              <audio
-                controls
-                src={audio}
-                style={{ width: '100%' }}
-              />
+        {/* 处理状态 */}
+        {isProcessing && (
+          <div style={{
+            marginBottom: '20px',
+            padding: '10px',
+            backgroundColor: '#fff3cd',
+            border: '1px solid #ffeaa7',
+            borderRadius: '4px',
+            fontSize: '14px',
+            color: '#856404'
+          }}>
+            🔄 正在处理音频...
+          </div>
+        )}
+
+        {/* 错误信息 */}
+        {errorMessage && (
+          <div style={{
+            marginBottom: '20px',
+            padding: '10px',
+            backgroundColor: '#f8d7da',
+            border: '1px solid #f5c6cb',
+            borderRadius: '4px',
+            fontSize: '14px',
+            color: '#721c24'
+          }}>
+            ❌ {errorMessage}
+          </div>
+        )}
+
+        {/* 输出格式选择 */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '16px' }}>
+            输出格式
+          </div>
+          <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+            <div>
+              <label style={{ marginRight: '8px' }}>格式:</label>
+              <select
+                value={params.outputFormat}
+                onChange={(e) => handleParamChange('outputFormat', e.target.value)}
+                disabled={isProcessing}
+                style={{
+                  padding: '4px 8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  opacity: isProcessing ? 0.6 : 1
+                }}
+              >
+                <option value="WAV">WAV</option>
+                <option value="OPUS">OPUS</option>
+                <option value="MP3">MP3</option>
+              </select>
             </div>
-          )}
-        </div>
-
-        {/* 参数调节区 */}
-        <div style={{
-          padding: '20px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '20px'
-        }}>
-          {/* 基础设置 */}
-          <div>
-            <h4 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>基础设置</h4>
-            
-            <SelectControl
-              label="输出格式"
-              value={currentParams.outputFormat}
-              options={['WAV', 'OPUS', 'MP3']}
-              onChange={(value) => handleParamChange('outputFormat', value as any)}
-            />
-            
-            <SelectControl
-              label="采样率"
-              value={currentParams.sampleRate}
-              options={['22.05kHz', '44.1kHz', '48kHz', '96kHz']}
-              onChange={(value) => handleParamChange('sampleRate', value as any)}
-            />
-            
-            <SelectControl
-              label="比特率"
-              value={currentParams.bitRate}
-              options={['32', '64', '128', '160', '192', '256', '320']}
-              onChange={(value) => handleParamChange('bitRate', value)}
-            />
-          </div>
-
-          {/* 音质增强 */}
-          <div>
-            <h4 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>音质增强</h4>
-            
-            <SliderControl
-              label="清晰度"
-              value={currentParams.clarity}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('clarity', value)}
-            />
-            
-            <SliderControl
-              label="音量增益"
-              value={currentParams.volumeGain}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('volumeGain', value)}
-            />
-            
-            <SliderControl
-              label="降噪强度"
-              value={currentParams.noiseReduction}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('noiseReduction', value)}
-            />
-            
-            <SliderControl
-              label="低音增强"
-              value={currentParams.bassBoost}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('bassBoost', value)}
-            />
-          </div>
-
-          {/* 均衡器 */}
-          <div>
-            <h4 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>均衡器</h4>
-            
-            <SliderControl
-              label="低频"
-              value={currentParams.lowFreq}
-              min={-20}
-              max={20}
-              onChange={(value) => handleParamChange('lowFreq', value)}
-              unit="dB"
-            />
-            
-            <SliderControl
-              label="中频"
-              value={currentParams.midFreq}
-              min={-20}
-              max={20}
-              onChange={(value) => handleParamChange('midFreq', value)}
-              unit="dB"
-            />
-            
-            <SliderControl
-              label="高频"
-              value={currentParams.highFreq}
-              min={-20}
-              max={20}
-              onChange={(value) => handleParamChange('highFreq', value)}
-              unit="dB"
-            />
-          </div>
-
-          {/* 专业调音 */}
-          <div>
-            <h4 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>专业调音</h4>
-            
-            <SliderControl
-              label="人声清晰度"
-              value={currentParams.voiceMidFreq}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('voiceMidFreq', value)}
-            />
-            
-            <SliderControl
-              label="高频舒适度"
-              value={currentParams.highFreqSmooth}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('highFreqSmooth', value)}
-            />
-            
-            <SliderControl
-              label="低频通透感"
-              value={currentParams.lowFreqClear}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('lowFreqClear', value)}
-            />
-            
-            <SliderControl
-              label="立体声宽度"
-              value={currentParams.stereoWidth}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('stereoWidth', value)}
-            />
-          </div>
-
-          {/* 空间效果 */}
-          <div>
-            <h4 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>空间效果</h4>
-            
-            <SliderControl
-              label="混响强度"
-              value={currentParams.reverb}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('reverb', value)}
-            />
-            
-            <SliderControl
-              label="衰减时间"
-              value={currentParams.decayTime}
-              min={0}
-              max={100}
-              onChange={(value) => handleParamChange('decayTime', value)}
-            />
+            <div>
+              <label style={{ marginRight: '8px' }}>采样率:</label>
+              <select
+                value={params.sampleRate}
+                onChange={(e) => handleParamChange('sampleRate', e.target.value)}
+                disabled={isProcessing}
+                style={{
+                  padding: '4px 8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  opacity: isProcessing ? 0.6 : 1
+                }}
+              >
+                <option value="22.05kHz">22.05kHz</option>
+                <option value="44.1kHz">44.1kHz</option>
+                <option value="48kHz">48kHz</option>
+                <option value="96kHz">96kHz</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ marginRight: '8px' }}>比特率:</label>
+              <select
+                value={params.bitRate}
+                onChange={(e) => handleParamChange('bitRate', e.target.value)}
+                disabled={isProcessing}
+                style={{
+                  padding: '4px 8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  opacity: isProcessing ? 0.6 : 1
+                }}
+              >
+                <option value="32">32</option>
+                <option value="64">64</option>
+                <option value="128">128</option>
+                <option value="160">160</option>
+                <option value="192">192</option>
+                <option value="256">256</option>
+                <option value="320">320</option>
+              </select>
+            </div>
           </div>
         </div>
+
+        {/* 音频调节滑块 */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '16px' }}>
+            音频调节
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '15px'
+          }}>
+            {sliderKeys.map((key) => {
+              const sliderProps = getSliderProps(key);
+              const value = params[key] as number;
+              
+              return (
+                <div key={key} style={{
+                  padding: '10px',
+                  backgroundColor: 'white',
+                  borderRadius: '4px',
+                  border: '1px solid #e9ecef'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: '8px',
+                    fontSize: '14px'
+                  }}>
+                    <span>{formatLabel(key)}</span>
+                    <span style={{ color: '#666' }}>
+                      {value}{key.includes('Freq') ? 'dB' : ''}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={sliderProps.min}
+                    max={sliderProps.max}
+                    step={sliderProps.step}
+                    value={value}
+                    onChange={(e) => handleParamChange(key, Number(e.target.value))}
+                    disabled={isProcessing}
+                    style={{
+                      width: '100%',
+                      opacity: isProcessing ? 0.6 : 1
+                    }}
+                  />
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: '#999',
+                    marginTop: '4px'
+                  }}>
+                    <span>{sliderProps.min}</span>
+                    <span>{sliderProps.max}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 处理后音频播放 */}
+        {processedAudioUrl && (
+          <div style={{
+            marginTop: '20px',
+            padding: '15px',
+            backgroundColor: 'white',
+            borderRadius: '6px',
+            border: '1px solid #e9ecef'
+          }}>
+            <div style={{
+              marginBottom: '10px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              color: '#333'
+            }}>
+              处理后音频预览:
+            </div>
+            <audio
+              controls
+              src={processedAudioUrl}
+              style={{
+                width: '100%'
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

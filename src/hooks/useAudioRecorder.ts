@@ -2,10 +2,17 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { RecordingState, AudioRecorderResult, RecordingError } from '../types';
 
 import Recorder from 'recorder-core';
+import 'recorder-core/src/engine/wav';
 import 'recorder-core/src/engine/mp3';
 import 'recorder-core/src/engine/mp3-engine';
 
-export const useAudioRecorder = (): AudioRecorderResult => {
+export interface AudioRecorderOptions {
+  onRecordingComplete?: (url: string, blob: Blob) => void;
+  onRecordingStateChange?: (state: RecordingState) => void;
+  onError?: (error: RecordingError) => void;
+}
+
+export const useAudioRecorder = (options: AudioRecorderOptions = {}): AudioRecorderResult => {
   const [recordingState, setRecordingState] = useState<RecordingState>({
     isRecording: false,
     isPaused: false,
@@ -14,11 +21,16 @@ export const useAudioRecorder = (): AudioRecorderResult => {
     audioBlob: undefined
   });
 
+  const [isRecordingReady, setIsRecordingReady] = useState(false);
+  const [isGettingPermission, setIsGettingPermission] = useState(false);
+  
   const recorderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
   const pausedDurationRef = useRef<number>(0);
+
+  const { onRecordingComplete, onRecordingStateChange, onError } = options;
 
   const clearDurationTimer = useCallback(() => {
     if (durationTimerRef.current) {
@@ -31,83 +43,124 @@ export const useAudioRecorder = (): AudioRecorderResult => {
     if (recordingState.isRecording && !recordingState.isPaused) {
       const currentTime = Date.now();
       const duration = Math.floor((currentTime - startTimeRef.current - pausedDurationRef.current) / 1000);
-      setRecordingState(prev => ({ ...prev, duration }));
+      setRecordingState(prev => {
+        const newState = { ...prev, duration };
+        onRecordingStateChange?.(newState);
+        return newState;
+      });
     }
-  }, [recordingState.isRecording, recordingState.isPaused]);
+  }, [recordingState.isRecording, recordingState.isPaused, onRecordingStateChange]);
+
+  const getRecorderPermission = useCallback((): Promise<boolean> => {
+    return new Promise((resolve) => {
+      try {
+        // 清理旧的录音器实例
+        if (recorderRef.current) {
+          try {
+            recorderRef.current.close();
+          } catch (e) {
+            console.warn('清理旧录音器时出错:', e);
+          }
+          recorderRef.current = null;
+        }
+
+        const rec = Recorder({
+          type: 'wav',
+          sampleRate: 44100,
+          bitRate: 16,
+          onProcess: (_buffers: any, _powerLevel: number, _bufferDuration: number, _bufferSampleRate: number) => {
+            // 可以在这里处理实时音频数据，比如显示音量等级
+          }
+        });
+
+        rec.open(
+          () => {
+            // 成功回调
+            setIsRecordingReady(true);
+            recorderRef.current = rec;
+            resolve(true);
+          }, 
+          (msg: string, isUserNotAllow: boolean) => {
+            // 错误回调
+            console.log((isUserNotAllow ? "UserNotAllow，" : "") + "无法录音:" + msg);
+            setIsRecordingReady(false);
+            const error = new RecordingError(
+              isUserNotAllow ? '麦克风权限被拒绝' : '录音器初始化失败', 
+              isUserNotAllow ? 'PERMISSION_DENIED' : 'RECORDER_INIT_FAILED'
+            );
+            onError?.(error);
+            resolve(false);
+          }
+        );
+      } catch (error) {
+        console.error('录音器初始化失败:', error);
+        const recordingError = new RecordingError('录音器初始化失败', 'RECORDER_INIT_FAILED');
+        onError?.(recordingError);
+        resolve(false);
+      }
+    });
+  }, [onError]);
 
   const startRecording = useCallback(async (): Promise<void> => {
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new RecordingError('浏览器不支持录音功能', 'BROWSER_NOT_SUPPORTED');
+      if (recordingState.isRecording || isGettingPermission) {
+        return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 44100
+      // 获取录音权限
+      if (!isRecordingReady || !recorderRef.current) {
+        setIsGettingPermission(true);
+        const permissionGranted = await getRecorderPermission();
+        setIsGettingPermission(false);
+        
+        if (!permissionGranted) {
+          return;
         }
-      });
+      }
 
-      streamRef.current = stream;
+      if (!recorderRef.current) {
+        throw new RecordingError('录音器未初始化', 'RECORDER_NOT_INITIALIZED');
+      }
 
-      recorderRef.current = Recorder({
-        type: 'wav',
-        sampleRate: 44100,
-        bitRate: 16,
-        onProcess: (_buffers: any, _powerLevel: number, _bufferDuration: number, _bufferSampleRate: number) => {
-          // 可以在这里处理实时音频数据，比如显示音量等级
-        }
-      });
+      recorderRef.current.start();
+      
+      startTimeRef.current = Date.now();
+      pausedDurationRef.current = 0;
+      
+      const newState = {
+        isRecording: true,
+        isPaused: false,
+        duration: 0,
+        audioUrl: undefined,
+        audioBlob: undefined
+      };
+      setRecordingState(newState);
+      onRecordingStateChange?.(newState);
 
-      recorderRef.current.open(
-        stream, 
-        () => {
-          recorderRef.current.start();
-          
-          startTimeRef.current = Date.now();
-          pausedDurationRef.current = 0;
-          setRecordingState(prev => ({
-            ...prev,
-            isRecording: true,
-            isPaused: false,
-            duration: 0,
-            audioUrl: undefined,
-            audioBlob: undefined
-          }));
-
-          durationTimerRef.current = setInterval(updateDuration, 1000);
-        }, 
-        (error: any) => {
-          console.error('录音器初始化失败:', error);
-          throw new RecordingError('录音器初始化失败', 'RECORDER_INIT_FAILED');
-        }
-      );
+      durationTimerRef.current = setInterval(updateDuration, 1000);
 
     } catch (error) {
       console.error('开始录音失败:', error);
       
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-      
+      let recordingError: RecordingError;
       if (error instanceof RecordingError) {
-        throw error;
+        recordingError = error;
       } else if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
-          throw new RecordingError('麦克风权限被拒绝', 'PERMISSION_DENIED');
+          recordingError = new RecordingError('麦克风权限被拒绝', 'PERMISSION_DENIED');
         } else if (error.name === 'NotFoundError') {
-          throw new RecordingError('未找到麦克风设备', 'NO_MICROPHONE');
+          recordingError = new RecordingError('未找到麦克风设备', 'NO_MICROPHONE');
         } else {
-          throw new RecordingError(`录音失败: ${error.message}`, 'UNKNOWN_ERROR');
+          recordingError = new RecordingError(`录音失败: ${error.message}`, 'UNKNOWN_ERROR');
         }
       } else {
-        throw new RecordingError('录音失败：未知错误', 'UNKNOWN_ERROR');
+        recordingError = new RecordingError('录音失败：未知错误', 'UNKNOWN_ERROR');
       }
+      
+      onError?.(recordingError);
+      throw recordingError;
     }
-  }, [updateDuration]);
+  }, [recordingState.isRecording, isGettingPermission, isRecordingReady, getRecorderPermission, updateDuration, onRecordingStateChange, onError]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -117,45 +170,76 @@ export const useAudioRecorder = (): AudioRecorderResult => {
           return;
         }
 
-        recorderRef.current.stop((blob: Blob, duration: number) => {
-          try {
-            const audioUrl = URL.createObjectURL(blob);
-            
-            setRecordingState(prev => ({
-              ...prev,
-              isRecording: false,
-              isPaused: false,
-              audioUrl,
-              audioBlob: blob,
-              duration: Math.floor(duration / 1000)
-            }));
+        if (durationTimerRef.current) {
+          clearInterval(durationTimerRef.current);
+          durationTimerRef.current = null;
+        }
 
-            clearDurationTimer();
+        recorderRef.current.stop(
+          (blob: Blob, duration: number) => {
+            try {
+              const audioUrl = URL.createObjectURL(blob);
+              
+              const newState = {
+                isRecording: false,
+                isPaused: false,
+                audioUrl,
+                audioBlob: blob,
+                duration: Math.floor(duration / 1000)
+              };
+              setRecordingState(newState);
+              onRecordingStateChange?.(newState);
 
-            recorderRef.current.close();
-            recorderRef.current = null;
+              clearDurationTimer();
 
-            if (streamRef.current) {
-              streamRef.current.getTracks().forEach(track => track.stop());
-              streamRef.current = null;
+              recorderRef.current.close();
+              recorderRef.current = null;
+              setIsRecordingReady(false);
+
+              // 通知录音完成
+              onRecordingComplete?.(audioUrl, blob);
+
+              resolve();
+            } catch (error) {
+              console.error('停止录音时处理音频失败:', error);
+              const recordingError = new RecordingError('停止录音时处理音频失败', 'AUDIO_PROCESSING_FAILED');
+              onError?.(recordingError);
+              reject(recordingError);
             }
-
-            resolve();
-          } catch (error) {
-            console.error('停止录音时处理音频失败:', error);
-            reject(new RecordingError('停止录音时处理音频失败', 'AUDIO_PROCESSING_FAILED'));
+          }, 
+          (msg: string) => {
+            console.log("录音失败:" + msg);
+            const recordingError = new RecordingError(`录音失败: ${msg}`, 'STOP_RECORDING_FAILED');
+            onError?.(recordingError);
+            
+            setRecordingState(prev => {
+              const newState = { ...prev, isRecording: false, isPaused: false, duration: 0 };
+              onRecordingStateChange?.(newState);
+              return newState;
+            });
+            
+            if (recorderRef.current) {
+              try {
+                recorderRef.current.close();
+              } catch (e) {
+                console.warn('清理录音器时出错:', e);
+              }
+              recorderRef.current = null;
+            }
+            setIsRecordingReady(false);
+            
+            reject(recordingError);
           }
-        }, (error: any) => {
-          console.error('停止录音失败:', error);
-          reject(new RecordingError('停止录音失败', 'STOP_RECORDING_FAILED'));
-        });
+        );
 
       } catch (error) {
         console.error('停止录音异常:', error);
-        reject(new RecordingError('停止录音异常', 'STOP_RECORDING_EXCEPTION'));
+        const recordingError = new RecordingError('停止录音异常', 'STOP_RECORDING_EXCEPTION');
+        onError?.(recordingError);
+        reject(recordingError);
       }
     });
-  }, [recordingState.isRecording, clearDurationTimer]);
+  }, [recordingState.isRecording, clearDurationTimer, onRecordingComplete, onRecordingStateChange, onError]);
 
   const pauseRecording = useCallback(() => {
     if (recorderRef.current && recordingState.isRecording && !recordingState.isPaused) {
@@ -164,15 +248,17 @@ export const useAudioRecorder = (): AudioRecorderResult => {
       const pauseTime = Date.now();
       const currentDuration = pauseTime - startTimeRef.current - pausedDurationRef.current;
       
-      setRecordingState(prev => ({
-        ...prev,
+      const newState = {
+        ...recordingState,
         isPaused: true,
         duration: Math.floor(currentDuration / 1000)
-      }));
+      };
+      setRecordingState(newState);
+      onRecordingStateChange?.(newState);
 
       clearDurationTimer();
     }
-  }, [recordingState.isRecording, recordingState.isPaused, clearDurationTimer]);
+  }, [recordingState, clearDurationTimer, onRecordingStateChange]);
 
   const resumeRecording = useCallback(() => {
     if (recorderRef.current && recordingState.isRecording && recordingState.isPaused) {
@@ -182,14 +268,16 @@ export const useAudioRecorder = (): AudioRecorderResult => {
       const lastPauseDuration = resumeTime - startTimeRef.current - pausedDurationRef.current;
       pausedDurationRef.current += lastPauseDuration - (recordingState.duration * 1000);
       
-      setRecordingState(prev => ({
-        ...prev,
+      const newState = {
+        ...recordingState,
         isPaused: false
-      }));
+      };
+      setRecordingState(newState);
+      onRecordingStateChange?.(newState);
 
       durationTimerRef.current = setInterval(updateDuration, 1000);
     }
-  }, [recordingState.isRecording, recordingState.isPaused, recordingState.duration, updateDuration]);
+  }, [recordingState, updateDuration, onRecordingStateChange]);
 
   const clearRecording = useCallback(() => {
     if (recordingState.isRecording) {
@@ -210,17 +298,21 @@ export const useAudioRecorder = (): AudioRecorderResult => {
       URL.revokeObjectURL(recordingState.audioUrl);
     }
 
-    setRecordingState({
+    const newState = {
       isRecording: false,
       isPaused: false,
       duration: 0,
       audioUrl: undefined,
       audioBlob: undefined
-    });
+    };
+    setRecordingState(newState);
+    onRecordingStateChange?.(newState);
 
     startTimeRef.current = 0;
     pausedDurationRef.current = 0;
-  }, [recordingState.isRecording, recordingState.audioUrl, clearDurationTimer]);
+    setIsRecordingReady(false);
+    setIsGettingPermission(false);
+  }, [recordingState, clearDurationTimer, onRecordingStateChange]);
 
   useEffect(() => {
     return () => {
@@ -230,6 +322,8 @@ export const useAudioRecorder = (): AudioRecorderResult => {
 
   return {
     recordingState,
+    isRecordingReady,
+    isGettingPermission,
     startRecording,
     stopRecording,
     pauseRecording,

@@ -23,10 +23,11 @@ import {
   AudioRecorder,
   AudioWaveform,
   AudioTuner,
-  useToneTuning,
   useDeviceAudioCapabilities,
   type RecordingState,
-  type AudioSegment
+  type AudioSegment,
+  type RecordingError,
+  type AudioProcessingParams
 } from '@react-audio-studio/core';
 
 const { Header, Content } = Layout;
@@ -37,15 +38,16 @@ const App: React.FC = () => {
   const [audioUrl, setAudioUrl] = useState<string>('');
   const [processedAudioUrl, setProcessedAudioUrl] = useState<string>('');
   const [selectedSegment, setSelectedSegment] = useState<AudioSegment | null>(null);
-  const waveformRef = useRef<any>(null);
-
-  // 使用调音功能 - 核心功能
-  const toneTuning = useToneTuning(audioUrl, {
-    clarity: 85,
-    volumeGain: 95,
-    reverb: 0,
-    noiseReduction: 20
+  const [recordingState, setRecordingState] = useState<RecordingState>({
+    isRecording: false,
+    isPaused: false,
+    duration: 0,
+    audioUrl: undefined,
+    audioBlob: undefined
   });
+  const [currentParams, setCurrentParams] = useState<AudioProcessingParams | null>(null);
+  
+  const waveformRef = useRef<any>(null);
 
   // 使用设备检测功能
   const deviceCapabilities = useDeviceAudioCapabilities();
@@ -54,23 +56,32 @@ const App: React.FC = () => {
   const handleRecordingComplete = useCallback((url: string, blob: Blob) => {
     setAudioUrl(url);
     setProcessedAudioUrl('');
+    setSelectedSegment(null);
     messageApi.success('录音完成！');
   }, [messageApi]);
 
   // 处理录音状态变化
   const handleRecordingStateChange = useCallback((state: RecordingState) => {
+    setRecordingState(state);
     if (!state.isRecording && !state.audioUrl) {
       // 录音被清除或重置时，清除之前的音频
       setAudioUrl('');
       setProcessedAudioUrl('');
+      setSelectedSegment(null);
     }
   }, []);
+
+  // 处理录音错误
+  const handleRecordingError = useCallback((error: RecordingError) => {
+    messageApi.error(`录音失败: ${error.message}`);
+  }, [messageApi]);
 
   // 处理文件上传
   const handleFileUpload = useCallback((file: File) => {
     const url = URL.createObjectURL(file);
     setAudioUrl(url);
     setProcessedAudioUrl('');
+    setSelectedSegment(null);
     messageApi.success('文件上传成功！');
     return false; // 阻止默认上传行为
   }, [messageApi]);
@@ -78,6 +89,11 @@ const App: React.FC = () => {
   // 处理调音后的音频变化
   const handleTunedAudioChange = useCallback((audio: string) => {
     setProcessedAudioUrl(audio);
+  }, []);
+
+  // 处理参数变化
+  const handleParamsChange = useCallback((params: AudioProcessingParams) => {
+    setCurrentParams(params);
   }, []);
 
   // 处理片段选择
@@ -96,22 +112,16 @@ const App: React.FC = () => {
   }, [audioUrl]);
 
   // 下载处理后音频
-  const handleDownloadProcessed = useCallback(async () => {
-    try {
-      const blob = await toneTuning.exportAudio();
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `processed_audio_${Date.now()}.wav`;
-        a.click();
-        URL.revokeObjectURL(url);
-        messageApi.success('音频导出成功！');
-      }
-    } catch (error) {
-      messageApi.error('音频导出失败');
-    }
-  }, [toneTuning, messageApi]);
+  const handleDownloadProcessed = useCallback(() => {
+    if (!processedAudioUrl) return;
+    
+    const a = document.createElement('a');
+    a.href = processedAudioUrl;
+    const format = currentParams?.outputFormat || 'wav';
+    a.download = `processed_audio_${Date.now()}.${format.toLowerCase()}`;
+    a.click();
+    messageApi.success('音频下载成功！');
+  }, [processedAudioUrl, currentParams, messageApi]);
 
   const TabItems = [
     {
@@ -127,6 +137,7 @@ const App: React.FC = () => {
           <AudioRecorder
             onRecordingComplete={handleRecordingComplete}
             onRecordingStateChange={handleRecordingStateChange}
+            onError={handleRecordingError}
           />
         </Card>
       ),
@@ -274,22 +285,11 @@ const App: React.FC = () => {
 
               {/* 实时调音面板 */}
               {audioUrl && (
-                <Card 
-                  title="实时调音器" 
-                  extra={
-                    <Space>
-                      {toneTuning.isProcessing && (
-                        <Text type="secondary">处理中...</Text>
-                      )}
-                      <Button onClick={toneTuning.resetParams} size="small">
-                        重置参数
-                      </Button>
-                    </Space>
-                  }
-                >
+                <Card title="实时调音器">
                   <AudioTuner
                     audioUrl={audioUrl}
                     onAudioChange={handleTunedAudioChange}
+                    onParamsChange={handleParamsChange}
                   />
                 </Card>
               )}
@@ -342,6 +342,68 @@ const App: React.FC = () => {
                 录制新音频或上传现有文件，然后使用我们强大的实时调音功能优化您的音频质量
               </Text>
             </div>
+          </Card>
+        )}
+
+        {/* 状态信息显示 */}
+        {audioUrl && (
+          <Card 
+            title="当前状态"
+            style={{ marginTop: '24px' }}
+          >
+            <Row gutter={16}>
+              <Col span={8}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#1890ff' }}>
+                    录音状态
+                  </div>
+                  <div style={{ marginTop: '8px' }}>
+                    {recordingState.isRecording ? (
+                      <Text type="warning">
+                        {recordingState.isPaused ? '暂停中' : '录音中'}
+                      </Text>
+                    ) : (
+                      <Text type="success">待机</Text>
+                    )}
+                  </div>
+                  <div style={{ color: '#666', fontSize: '14px' }}>
+                    时长: {Math.floor(recordingState.duration / 60)}:{(recordingState.duration % 60).toString().padStart(2, '0')}
+                  </div>
+                </div>
+              </Col>
+              <Col span={8}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#52c41a' }}>
+                    音频格式
+                  </div>
+                  <div style={{ marginTop: '8px' }}>
+                    <Text>{currentParams?.outputFormat || 'WAV'}</Text>
+                  </div>
+                  <div style={{ color: '#666', fontSize: '14px' }}>
+                    {currentParams?.sampleRate || '44.1kHz'} | {currentParams?.bitRate || '160'}
+                    {currentParams?.outputFormat === 'WAV' ? 'bit' : 'kbps'}
+                  </div>
+                </div>
+              </Col>
+              <Col span={8}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#722ed1' }}>
+                    处理状态
+                  </div>
+                  <div style={{ marginTop: '8px' }}>
+                    <Text type={processedAudioUrl ? 'success' : 'secondary'}>
+                      {processedAudioUrl ? '已处理' : '未处理'}
+                    </Text>
+                  </div>
+                  <div style={{ color: '#666', fontSize: '14px' }}>
+                    {selectedSegment ? 
+                      `选中: ${(selectedSegment.endTime - selectedSegment.startTime).toFixed(1)}s` : 
+                      '全音频'
+                    }
+                  </div>
+                </div>
+              </Col>
+            </Row>
           </Card>
         )}
       </Content>

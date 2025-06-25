@@ -1,36 +1,37 @@
-import React, { useCallback, useEffect } from 'react';
-import { AudioRecorderProps } from '../types';
+import React, { useCallback, useState } from 'react';
+import { AudioRecorderProps, RecordingError } from '../types';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
 export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   onRecordingComplete,
   onRecordingStateChange,
+  onError,
   className,
   style
 }) => {
+  const [errorMessage, setErrorMessage] = useState<string>('');
+
   const {
     recordingState,
+    isRecordingReady,
+    isGettingPermission,
     startRecording,
     stopRecording,
     pauseRecording,
     resumeRecording,
     clearRecording
-  } = useAudioRecorder();
-
-  useEffect(() => {
-    if (onRecordingStateChange) {
-      onRecordingStateChange(recordingState);
-    }
-  }, [recordingState, onRecordingStateChange]);
-
-  useEffect(() => {
-    if (onRecordingComplete && recordingState.audioUrl && recordingState.audioBlob && !recordingState.isRecording) {
-      onRecordingComplete(recordingState.audioUrl, recordingState.audioBlob);
-    }
-  }, [recordingState.audioUrl, recordingState.audioBlob, recordingState.isRecording, onRecordingComplete]);
+  } = useAudioRecorder({
+    onRecordingComplete,
+    onRecordingStateChange,
+    onError: useCallback((error: RecordingError) => {
+      setErrorMessage(error.message);
+      onError?.(error);
+    }, [onError])
+  });
 
   const handleStartRecording = useCallback(async () => {
     try {
+      setErrorMessage('');
       await startRecording();
     } catch (error) {
       console.error('开始录音失败:', error);
@@ -45,10 +46,34 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
     }
   }, [stopRecording]);
 
+  const handleClearRecording = useCallback(() => {
+    setErrorMessage('');
+    clearRecording();
+  }, [clearRecording]);
+
   const formatTime = (seconds: number): string => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
+  const getStatusText = () => {
+    if (isGettingPermission) return '获取录音权限中...';
+    if (!isRecordingReady && !recordingState.isRecording && !recordingState.audioUrl) return '准备录音';
+    if (recordingState.isRecording) {
+      return recordingState.isPaused ? '录音已暂停' : '正在录音...';
+    }
+    if (recordingState.audioUrl) return '录音完成';
+    return '准备录音';
+  };
+
+  const getStatusColor = () => {
+    if (errorMessage) return '#dc3545';
+    if (isGettingPermission) return '#ffc107';
+    if (recordingState.isRecording) {
+      return recordingState.isPaused ? '#ffa500' : '#dc3545';
+    }
+    return '#666';
   };
 
   return (
@@ -66,9 +91,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           <div style={{
             fontSize: '24px',
             fontWeight: 'bold',
-            color: recordingState.isRecording 
-              ? (recordingState.isPaused ? '#ffa500' : '#dc3545')
-              : '#666'
+            color: getStatusColor()
           }}>
             {formatTime(recordingState.duration)}
           </div>
@@ -76,14 +99,9 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           <div style={{
             marginTop: '8px',
             fontSize: '14px',
-            color: '#666'
+            color: getStatusColor()
           }}>
-            {recordingState.isRecording
-              ? (recordingState.isPaused ? '录音已暂停' : '正在录音...')
-              : recordingState.audioUrl
-                ? '录音完成'
-                : '准备录音'
-            }
+            {errorMessage || getStatusText()}
           </div>
         </div>
 
@@ -122,25 +140,27 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             <>
               <button
                 onClick={handleStartRecording}
+                disabled={isGettingPermission}
                 style={{
                   padding: '12px 24px',
                   border: 'none',
                   borderRadius: '6px',
-                  backgroundColor: '#007bff',
+                  backgroundColor: isGettingPermission ? '#6c757d' : '#007bff',
                   color: 'white',
                   fontSize: '16px',
-                  cursor: 'pointer',
+                  cursor: isGettingPermission ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  opacity: isGettingPermission ? 0.6 : 1
                 }}
               >
-                🎤 开始录音
+                🎤 {isGettingPermission ? '获取权限中...' : '开始录音'}
               </button>
               
               {recordingState.audioUrl && (
                 <button
-                  onClick={clearRecording}
+                  onClick={handleClearRecording}
                   style={{
                     padding: '12px 24px',
                     border: '1px solid #6c757d',
@@ -243,7 +263,22 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
         )}
 
-        {!recordingState.isRecording && !recordingState.audioUrl && (
+        {/* 错误信息显示 */}
+        {errorMessage && (
+          <div style={{
+            marginTop: '20px',
+            padding: '15px',
+            backgroundColor: '#f8d7da',
+            borderRadius: '6px',
+            border: '1px solid #f5c6cb',
+            fontSize: '14px',
+            color: '#721c24'
+          }}>
+            ❌ {errorMessage}
+          </div>
+        )}
+
+        {!recordingState.isRecording && !recordingState.audioUrl && !errorMessage && (
           <div style={{
             marginTop: '20px',
             padding: '15px',

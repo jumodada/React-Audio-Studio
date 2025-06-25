@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { 
   AudioProcessingParams, 
   ToneTuningResult, 
@@ -157,26 +157,38 @@ const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
   return buffer2;
 };
 
+export interface ToneTuningOptions {
+  onAudioChange?: (audioUrl: string) => void;
+  onProcessingChange?: (isProcessing: boolean) => void;
+  onError?: (error: AudioProcessingError) => void;
+}
+
 export const useToneTuning = (
-  audioSource: string | File | Blob,
-  initialParams?: Partial<AudioProcessingParams>
+  audioSource?: string | File | Blob,
+  initialParams?: Partial<AudioProcessingParams>,
+  options: ToneTuningOptions = {}
 ): ToneTuningResult => {
   const [params, setParams] = useState<AudioProcessingParams>(() => ({
     ...presetConfigs.recommended,
     ...initialParams
   }));
   
-  const [audio, setAudio] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const sourceUrlRef = useRef<string | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const processingPromiseRef = useRef<Promise<void> | null>(null);
-  const lastProcessedParamsRef = useRef<string>('');
+  const processingPromiseRef = useRef<Promise<string | void> | null>(null);
+  const currentAudioUrlRef = useRef<string | null>(null);
+
+  const { onAudioChange, onProcessingChange, onError } = options;
 
   const initializeAudio = useCallback(async () => {
+    if (!audioSource) {
+      return;
+    }
+
     try {
       let audioUrl: string;
       
@@ -200,9 +212,11 @@ export const useToneTuning = (
       
     } catch (error) {
       console.error('音频初始化失败:', error);
-      throw new AudioProcessingError('音频初始化失败');
+      const processingError = new AudioProcessingError('音频初始化失败');
+      onError?.(processingError);
+      throw processingError;
     }
-  }, [audioSource]);
+  }, [audioSource, onError]);
 
   const processAudioWithEffects = useCallback(async (audioBuffer: AudioBuffer, currentParams: AudioProcessingParams): Promise<AudioBuffer> => {
     const offlineContext = new OfflineAudioContext(
@@ -282,17 +296,13 @@ export const useToneTuning = (
     return await offlineContext.startRendering();
   }, []);
 
-  // 处理音频的主函数
-  const processAudio = useCallback(async (currentParams: AudioProcessingParams) => {
+  // 手动处理音频函数
+  const processAudio = useCallback(async (paramsToProcess?: AudioProcessingParams): Promise<string | null> => {
     if (!audioBufferRef.current || !audioContextRef.current) {
-      return;
+      return null;
     }
 
-    // 检查是否与上次处理的参数相同，避免重复处理
-    const paramsKey = JSON.stringify(currentParams);
-    if (paramsKey === lastProcessedParamsRef.current) {
-      return;
-    }
+    const currentParams = paramsToProcess || params;
 
     // 如果已有处理任务在进行，等待其完成
     if (processingPromiseRef.current) {
@@ -300,6 +310,7 @@ export const useToneTuning = (
     }
 
     setIsProcessing(true);
+    onProcessingChange?.(true);
     
     const processingPromise = (async () => {
       try {
@@ -314,32 +325,41 @@ export const useToneTuning = (
           blob = new Blob([wav], { type: 'audio/wav' });
         }
 
-        setAudio(prevAudio => {
-          if (prevAudio) {
-            URL.revokeObjectURL(prevAudio);
-          }
-          return URL.createObjectURL(blob);
-        });
+        // 清理之前的音频URL
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+        }
 
-        lastProcessedParamsRef.current = paramsKey;
+        const audioUrl = URL.createObjectURL(blob);
+        currentAudioUrlRef.current = audioUrl;
+        
+        // 通知音频变化
+        onAudioChange?.(audioUrl);
+        
+        return audioUrl;
         
       } catch (error) {
         console.error('音频处理失败:', error);
-        throw new AudioProcessingError('音频处理失败');
+        const processingError = new AudioProcessingError('音频处理失败');
+        onError?.(processingError);
+        throw processingError;
       } finally {
         setTimeout(() => {
           setIsProcessing(false);
+          onProcessingChange?.(false);
         }, 500);
       }
     })();
 
     processingPromiseRef.current = processingPromise;
-    await processingPromise;
+    const result = await processingPromise;
     processingPromiseRef.current = null;
-  }, [processAudioWithEffects]);
+    
+    return result;
+  }, [params, processAudioWithEffects, onAudioChange, onProcessingChange, onError]);
 
-  // 参数变化时的防抖处理
-  useEffect(() => {
+  // 防抖处理音频
+  const debouncedProcessAudio = useCallback((paramsToProcess?: AudioProcessingParams) => {
     if (!audioBufferRef.current) {
       return;
     }
@@ -351,15 +371,9 @@ export const useToneTuning = (
 
     // 防抖处理：300ms 后执行处理
     debounceTimerRef.current = setTimeout(() => {
-      processAudio(params);
+      processAudio(paramsToProcess);
     }, 300);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [params, processAudio]);
+  }, [processAudio]);
 
   // 音频源变化时重新初始化
   useEffect(() => {
@@ -369,11 +383,12 @@ export const useToneTuning = (
 
     initializeAudio()
       .then(() => {
-        return processAudio(params);
+        // 初始化完成后，不自动处理音频，等待用户调用
       })
       .catch(error => {
         console.error('音频初始化失败:', error);
         setIsProcessing(false);
+        onProcessingChange?.(false);
       });
     
     return () => {
@@ -386,32 +401,37 @@ export const useToneTuning = (
         audioContextRef.current = null;
       }
       audioBufferRef.current = null;
-      lastProcessedParamsRef.current = '';
     };
-  }, [audioSource, initializeAudio, processAudio, params]);
+  }, [audioSource, initializeAudio, onProcessingChange]);
 
   useEffect(() => {
     return () => {
-      if (audio) {
-        URL.revokeObjectURL(audio);
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
       }
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [audio]);
+  }, []);
 
   const updateParams = useCallback((newParams: Partial<AudioProcessingParams>) => {
     setParams(prev => ({ ...prev, ...newParams }));
-  }, []);
+    // 参数更新时自动触发防抖处理
+    debouncedProcessAudio({ ...params, ...newParams });
+  }, [params, debouncedProcessAudio]);
 
   const resetParams = useCallback(() => {
-    setParams(presetConfigs.recommended);
-  }, []);
+    const resetToParams = presetConfigs.recommended;
+    setParams(resetToParams);
+    debouncedProcessAudio(resetToParams);
+  }, [debouncedProcessAudio]);
 
   const applyPreset = useCallback((preset: AudioPreset) => {
-    setParams(presetConfigs[preset]);
-  }, []);
+    const presetParams = presetConfigs[preset];
+    setParams(presetParams);
+    debouncedProcessAudio(presetParams);
+  }, [debouncedProcessAudio]);
 
   const exportAudio = useCallback(async (format: AudioFormat = params.outputFormat): Promise<Blob | null> => {
     if (!audioBufferRef.current || !audioContextRef.current) {
@@ -434,19 +454,14 @@ export const useToneTuning = (
     }
   }, [params, processAudioWithEffects]);
 
-  const updateParamsWithPreset = useCallback((newParams: Partial<AudioProcessingParams> | { preset: AudioPreset }) => {
-    if ('preset' in newParams) {
-      applyPreset(newParams.preset);
-    } else {
-      updateParams(newParams);
-    }
-  }, [updateParams, applyPreset]);
-
-  return useMemo(() => ({
-    audio,
+  return {
+    params,
     isProcessing,
-    updateParams: updateParamsWithPreset,
+    updateParams,
     resetParams,
-    exportAudio
-  }), [audio, isProcessing, updateParamsWithPreset, resetParams, exportAudio]);
+    applyPreset,
+    exportAudio,
+    processAudio,  // 手动处理音频
+    presetConfigs
+  };
 }; 

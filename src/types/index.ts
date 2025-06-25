@@ -63,16 +63,21 @@ export interface AudioPlayerState {
 
 // 调音 Hook 返回类型
 export interface ToneTuningResult {
-  audio: string | null;                    // 处理后的音频 URL
-  isProcessing: boolean;                   // 是否正在处理
-  updateParams: (params: Partial<AudioProcessingParams>) => void;  // 更新参数
-  resetParams: () => void;                 // 重置参数
-  exportAudio: (format?: AudioFormat) => Promise<Blob | null>;     // 导出音频
+  params: AudioProcessingParams;
+  isProcessing: boolean;
+  updateParams: (newParams: Partial<AudioProcessingParams>) => void;
+  resetParams: () => void;
+  applyPreset: (preset: AudioPreset) => void;
+  exportAudio: (format?: AudioFormat) => Promise<Blob | null>;
+  processAudio: (paramsToProcess?: AudioProcessingParams) => Promise<string | null>;
+  presetConfigs: Record<AudioPreset, AudioProcessingParams>;
 }
 
 // 录音 Hook 返回类型
 export interface AudioRecorderResult {
   recordingState: RecordingState;
+  isRecordingReady: boolean;
+  isGettingPermission: boolean;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   pauseRecording: () => void;
@@ -104,6 +109,7 @@ export interface AudioProcessingResult {
 export interface AudioRecorderProps {
   onRecordingComplete?: (audioUrl: string, audioBlob: Blob) => void;
   onRecordingStateChange?: (state: RecordingState) => void;
+  onError?: (error: RecordingError) => void;
   className?: string;
   style?: React.CSSProperties;
 }
