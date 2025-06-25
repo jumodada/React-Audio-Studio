@@ -8,7 +8,7 @@
 
 ## 📸 演示效果
 
-![React Audio Studio 演示界面](https://via.placeholder.com/800x450/6366f1/ffffff?text=React+Audio+Studio+Demo)
+![React Audio Studio 演示界面](https://i.postimg.cc/wMKDDvHs/image.png)
 
 *专业音频录制与调音工作台界面*
 
