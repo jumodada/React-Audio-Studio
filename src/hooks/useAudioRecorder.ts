@@ -61,25 +61,29 @@ export const useAudioRecorder = (): AudioRecorderResult => {
         }
       });
 
-      recorderRef.current.open(stream, () => {
-        recorderRef.current.start();
-        
-        startTimeRef.current = Date.now();
-        pausedDurationRef.current = 0;
-        setRecordingState(prev => ({
-          ...prev,
-          isRecording: true,
-          isPaused: false,
-          duration: 0,
-          audioUrl: undefined,
-          audioBlob: undefined
-        }));
+      recorderRef.current.open(
+        stream, 
+        () => {
+          recorderRef.current.start();
+          
+          startTimeRef.current = Date.now();
+          pausedDurationRef.current = 0;
+          setRecordingState(prev => ({
+            ...prev,
+            isRecording: true,
+            isPaused: false,
+            duration: 0,
+            audioUrl: undefined,
+            audioBlob: undefined
+          }));
 
-        durationTimerRef.current = setInterval(updateDuration, 1000);
-      }, (error: any) => {
-        console.error('录音器初始化失败:', error);
-        throw new RecordingError('录音器初始化失败', 'RECORDER_INIT_FAILED');
-      });
+          durationTimerRef.current = setInterval(updateDuration, 1000);
+        }, 
+        (error: any) => {
+          console.error('录音器初始化失败:', error);
+          throw new RecordingError('录音器初始化失败', 'RECORDER_INIT_FAILED');
+        }
+      );
 
     } catch (error) {
       console.error('开始录音失败:', error);

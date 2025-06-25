@@ -1,7 +1,7 @@
 {
   "name": "@react-audio-studio/core",
-  "version": "0.1.0",
-  "description": "一个现代化的React音频录制和处理工作台组件库",
+  "version": "0.2.0",
+  "description": "一个现代化的React音频录制和处理工作台组件库 - 真正脱离UI的Hook集合",
   "main": "dist/index.js",
   "module": "dist/index.es.js",
   "types": "dist/index.d.ts",

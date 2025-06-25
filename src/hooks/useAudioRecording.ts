@@ -1,8 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-// @ts-ignore
-import Recorder from 'recorder-core';
-// @ts-ignore
-import 'recorder-core/src/engine/wav';
+import { useAudioRecorder } from './useAudioRecorder';
 
 export interface UseAudioRecordingOptions {
   onError?: (error: string) => void;
@@ -19,144 +16,49 @@ interface SimpleRecordingState {
 export const useAudioRecording = (options: UseAudioRecordingOptions = {}) => {
   const { onError, onSuccess } = options;
   
-  const [recordingState, setRecordingState] = useState<SimpleRecordingState>({
+  const { recordingState, startRecording: start, stopRecording: stop } = useAudioRecorder();
+  const recordingWaveRef = useRef<HTMLDivElement>(null);
+  
+  const [legacyState, setLegacyState] = useState<SimpleRecordingState>({
     isRecording: false,
-    isReady: false,
+    isReady: true,
     duration: 0,
     isGettingPermission: false,
   });
-  
-  const recorderRef = useRef<any>(null);
-  const recordingWaveRef = useRef<HTMLDivElement>(null);
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const updateRecordingState = useCallback((updates: Partial<SimpleRecordingState>) => {
-    setRecordingState(prev => ({ ...prev, ...updates }));
-  }, []);
-
-  const cleanupRecorder = useCallback(() => {
-    if (recorderRef.current) {
-      try {
-        recorderRef.current.close();
-      } catch (e) {
-        console.warn('清理录音器时出错:', e);
-      }
-      recorderRef.current = null;
-    }
-
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-  }, []);
-
-  const getRecorderPermission = useCallback((): Promise<boolean> => {
-    return new Promise((resolve) => {
-      try {
-        cleanupRecorder();
-        
-        const rec = Recorder({
-          type: 'wav',
-          sampleRate: 44100,
-          bitRate: 16,
-        });
-
-        rec.open(
-          function() {
-            updateRecordingState({ isReady: true });
-            recorderRef.current = rec;
-            onSuccess?.('录音权限获取成功');
-            resolve(true);
-          },
-          function(msg: string, isUserNotAllow: boolean) {
-            const errorMsg = (isUserNotAllow ? "用户拒绝，" : "") + "无法录音:" + msg;
-            onError?.(errorMsg);
-            updateRecordingState({ isReady: false });
-            resolve(false);
-          }
-        );
-      } catch (error) {
-        onError?.('录音器初始化失败');
-        resolve(false);
-      }
+  // 同步状态
+  useEffect(() => {
+    setLegacyState({
+      isRecording: recordingState.isRecording,
+      isReady: !recordingState.isRecording,
+      duration: recordingState.duration,
+      isGettingPermission: false,
     });
-  }, [cleanupRecorder, updateRecordingState, onError, onSuccess]);
+  }, [recordingState]);
 
-  const startRecording = useCallback(async (onClearAudio: () => void) => {
-    if (recordingState.isRecording || recordingState.isGettingPermission) {
-      return;
+  const startRecording = useCallback(async (onClearAudio?: () => void) => {
+    try {
+      onClearAudio?.();
+      await start();
+      onSuccess?.('录音开始');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : '录音失败';
+      onError?.(errorMsg);
     }
+  }, [start, onError, onSuccess]);
 
-    onClearAudio();
-
-    if (!recordingState.isReady || !recorderRef.current) {
-      updateRecordingState({ isGettingPermission: true });
-      const permissionGranted = await getRecorderPermission();
-      updateRecordingState({ isGettingPermission: false });
-      
-      if (!permissionGranted) {
-        return;
+  const stopRecording = useCallback(async (onAudioGenerated?: (url: string) => void) => {
+    try {
+      await stop();
+      if (recordingState.audioUrl) {
+        onAudioGenerated?.(recordingState.audioUrl);
       }
-    }
-
-    try {
-      recorderRef.current.start();
-      updateRecordingState({ isRecording: true, duration: 0 });
-      
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingState(prev => ({ ...prev, duration: prev.duration + 1 }));
-      }, 1000);
-
+      onSuccess?.('录音完成');
     } catch (error) {
-      onError?.('开始录音失败');
-      updateRecordingState({ isRecording: false });
+      const errorMsg = error instanceof Error ? error.message : '停止录音失败';
+      onError?.(errorMsg);
     }
-  }, [recordingState.isRecording, recordingState.isGettingPermission, recordingState.isReady, getRecorderPermission, updateRecordingState, onError]);
-
-  const stopRecording = useCallback((onAudioGenerated: (url: string) => void) => {
-    if (!recorderRef.current || !recordingState.isRecording) {
-      return;
-    }
-
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-
-    try {
-      recorderRef.current.stop(
-        function(blob: Blob) {
-          try {
-            const localUrl = URL.createObjectURL(blob);
-            onAudioGenerated(localUrl);
-            
-            updateRecordingState({
-              isRecording: false,
-              duration: 0,
-              isReady: false
-            });
-            
-            cleanupRecorder();
-            onSuccess?.('录音完成');
-            
-          } catch (error) {
-            onError?.('处理录音结果失败');
-          }
-        },
-        function(msg: string) {
-          onError?.("录音失败:" + msg);
-          updateRecordingState({
-            isRecording: false,
-            duration: 0,
-            isReady: false
-          });
-          cleanupRecorder();
-        }
-      );
-    } catch (error) {
-      onError?.('停止录音失败');
-    }
-  }, [recordingState.isRecording, cleanupRecorder, updateRecordingState, onError, onSuccess]);
+  }, [stop, recordingState.audioUrl, onError, onSuccess]);
 
   const formatRecordingTime = useCallback((seconds: number): string => {
     const minutes = Math.floor(seconds / 60);
@@ -164,17 +66,11 @@ export const useAudioRecording = (options: UseAudioRecordingOptions = {}) => {
     return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   }, []);
 
-  useEffect(() => {
-    return () => {
-      cleanupRecorder();
-    };
-  }, [cleanupRecorder]);
-
   return {
-    isRecording: recordingState.isRecording,
-    isGettingPermission: recordingState.isGettingPermission,
-    isRecordingReady: recordingState.isReady,
-    recordingDuration: recordingState.duration,
+    isRecording: legacyState.isRecording,
+    isGettingPermission: legacyState.isGettingPermission,
+    isRecordingReady: legacyState.isReady,
+    recordingDuration: legacyState.duration,
     startRecording,
     stopRecording,
     formatRecordingTime,

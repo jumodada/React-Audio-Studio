@@ -59,8 +59,8 @@ const App: React.FC = () => {
 
   // 处理录音状态变化
   const handleRecordingStateChange = useCallback((state: RecordingState) => {
-    if (state.isRecording) {
-      // 录音开始时清除之前的音频
+    if (!state.isRecording && !state.audioUrl) {
+      // 录音被清除或重置时，清除之前的音频
       setAudioUrl('');
       setProcessedAudioUrl('');
     }

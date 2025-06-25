@@ -12,7 +12,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     selectedSegment: null
   });
 
-  // DOM 引用
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const overviewRef = useRef<HTMLDivElement | null>(null);
@@ -20,14 +19,12 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
   // Peaks.js 实例引用
   const peaksRef = useRef<any>(null);
   
-  // 片段播放控制引用
   const segmentPlaybackControlRef = useRef<{
     animationId?: number;
     timeoutId?: NodeJS.Timeout;
     endTime?: number;
   }>({});
 
-  // 清理片段播放控制
   const clearSegmentPlaybackControl = useCallback(() => {
     if (segmentPlaybackControlRef.current.animationId) {
       cancelAnimationFrame(segmentPlaybackControlRef.current.animationId);
@@ -40,7 +37,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     segmentPlaybackControlRef.current.endTime = undefined;
   }, []);
 
-  // 验证片段是否有效
   const isValidSegment = useCallback((segment: AudioSegment | null): boolean => {
     if (segment === null || !audioRef.current) return false;
     
@@ -51,7 +47,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
            segment.endTime <= audioRef.current.duration;
   }, []);
 
-  // 添加默认片段
   const addDefaultSegment = useCallback(() => {
     if (peaksRef.current && audioRef.current && !isNaN(audioRef.current.duration)) {
       const duration = audioRef.current.duration;
@@ -71,7 +66,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     }
   }, []);
 
-  // 高精度检查播放位置
   const checkPlaybackPosition = useCallback(() => {
     if (!audioRef.current || !segmentPlaybackControlRef.current.endTime) {
       return;
@@ -80,7 +74,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     const currentTime = audioRef.current.currentTime;
     const endTime = segmentPlaybackControlRef.current.endTime;
     
-    // 检查是否到达或超过结束时间（允许10毫秒的误差）
     if (currentTime >= endTime - 0.01) {
       audioRef.current.pause();
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
@@ -88,7 +81,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
       return;
     }
 
-    // 继续监控
     segmentPlaybackControlRef.current.animationId = requestAnimationFrame(checkPlaybackPosition);
   }, [clearSegmentPlaybackControl]);
 
@@ -101,7 +93,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
       setPlayerState(prev => ({ ...prev, isPlaying: false }));
       clearSegmentPlaybackControl();
     } else {
-      // 清理之前的区间播放控制
       clearSegmentPlaybackControl();
       
       audioRef.current.play().then(() => {
@@ -121,7 +112,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     }
   }, [clearSegmentPlaybackControl]);
 
-  // 跳转到指定时间
   const seek = useCallback((time: number) => {
     if (audioRef.current && !isNaN(time) && time >= 0 && time <= audioRef.current.duration) {
       audioRef.current.currentTime = time;
@@ -129,7 +119,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     }
   }, []);
 
-  // 设置音量
   const setVolume = useCallback((volume: number) => {
     if (audioRef.current) {
       const clampedVolume = Math.max(0, Math.min(1, volume));
@@ -138,12 +127,10 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     }
   }, []);
 
-  // 选择片段
   const selectSegment = useCallback((segment: AudioSegment | null) => {
     setPlayerState(prev => ({ ...prev, selectedSegment: segment }));
   }, []);
 
-  // 播放选中片段
   const playSegment = useCallback((segment: AudioSegment) => {
     if (!audioRef.current || !isValidSegment(segment)) {
       return;
@@ -156,16 +143,12 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
       return;
     }
 
-    // 清理之前的控制
     clearSegmentPlaybackControl();
 
-    // 设置播放位置到区间开始
     audioRef.current.currentTime = segment.startTime;
     
-    // 记录结束时间
     segmentPlaybackControlRef.current.endTime = segment.endTime;
     
-    // 计算播放时长并设置备用定时器
     const duration = segment.endTime - segment.startTime;
     segmentPlaybackControlRef.current.timeoutId = setTimeout(() => {
       if (audioRef.current && playerState.isPlaying) {
@@ -177,7 +160,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
 
     audioRef.current.play().then(() => {
       setPlayerState(prev => ({ ...prev, isPlaying: true }));
-      // 开始高精度监控
       segmentPlaybackControlRef.current.animationId = requestAnimationFrame(checkPlaybackPosition);
     }).catch(error => {
       console.error('音频播放失败:', error);
@@ -185,7 +167,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     });
   }, [playerState.isPlaying, isValidSegment, clearSegmentPlaybackControl, checkPlaybackPosition]);
 
-  // 音频事件处理
   const handleTimeUpdate = useCallback(() => {
     if (audioRef.current) {
       setPlayerState(prev => ({ 
@@ -209,10 +190,8 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     clearSegmentPlaybackControl();
   }, [clearSegmentPlaybackControl]);
 
-  // 初始化 Peaks.js
   useEffect(() => {
     if (audioUrl && waveformRef.current && audioRef.current) {
-      // 清理旧的 Peaks 实例
       if (peaksRef.current) {
         try {
           peaksRef.current.destroy();
@@ -222,7 +201,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
         peaksRef.current = null;
       }
 
-      // 重置状态
       setPlayerState(prev => ({
         ...prev,
         isPlaying: false,
@@ -231,7 +209,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
         selectedSegment: null
       }));
 
-      // 初始化 Peaks.js
       const options = {
         container: waveformRef.current,
         mediaElement: audioRef.current,
@@ -245,7 +222,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
         playheadTextColor: '#aaa'
       };
 
-      // 如果有 overview 容器，添加 overview 配置
       if (overviewRef.current) {
         (options as any).overview = {
           container: overviewRef.current,
@@ -262,7 +238,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
         
         peaksRef.current = peaks;
         
-        // 添加默认片段
         if (audioRef.current && !isNaN(audioRef.current.duration)) {
           addDefaultSegment();
         } else {
@@ -273,7 +248,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
           audioRef.current?.addEventListener('loadedmetadata', handleLoadedMetadata);
         }
         
-        // 监听片段点击事件
         peaks.on('segments.click', (segment: any) => {
           if (isValidSegment(segment)) {
             setPlayerState(prev => ({ ...prev, selectedSegment: segment }));
@@ -291,19 +265,16 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
           let constrainedEndTime = event.segment.endTime;
           let needsUpdate = false;
           
-          // 约束开始时间
           if (constrainedStartTime < 0) {
             constrainedStartTime = 0;
             needsUpdate = true;
           }
           
-          // 约束结束时间
           if (constrainedEndTime > audioDuration) {
             constrainedEndTime = audioDuration;
             needsUpdate = true;
           }
           
-          // 确保结束时间大于开始时间
           if (constrainedEndTime <= constrainedStartTime) {
             constrainedEndTime = Math.min(constrainedStartTime + 0.1, audioDuration);
             needsUpdate = true;
@@ -367,7 +338,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
           }
         });
 
-        // 监听波形点击事件 - 用于设置播放位置
         peaks.on('zoomview.click', (event: any) => {
           if (event.time && !isNaN(event.time) && audioRef.current && !isNaN(audioRef.current.duration)) {
             seek(event.time);
@@ -389,7 +359,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     };
   }, [audioUrl, addDefaultSegment, clearSegmentPlaybackControl, isValidSegment, seek]);
 
-  // 绑定音频事件
   useEffect(() => {
     const audioElement = audioRef.current;
     if (audioElement) {
@@ -405,7 +374,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     }
   }, [handleTimeUpdate, handleLoadedMetadata, handleEnded]);
 
-  // 获取 DOM 引用的函数
   const getAudioRef = useCallback(() => audioRef, []);
   const getWaveformRef = useCallback(() => waveformRef, []);
   const getOverviewRef = useCallback(() => overviewRef, []);
@@ -419,7 +387,6 @@ export const useAudioPlayer = (audioUrl: string): AudioPlayerResult => {
     setVolume,
     selectSegment,
     playSegment,
-    // 额外的工具方法
     getAudioRef,
     getWaveformRef,
     getOverviewRef,

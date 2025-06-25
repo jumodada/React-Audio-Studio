@@ -46,20 +46,76 @@ yarn add @react-audio-studio/core
 
 ### 基础用法
 
-#### 1. 音频录制Hook
+#### 1. 音频录制Hook（推荐）
+
+**⚠️ 推荐使用 `useAudioRecorder`，它是更现代且功能完整的录音Hook。**
+
+```tsx
+import { useAudioRecorder } from '@react-audio-studio/core';
+
+function RecordingApp() {
+  const { recordingState, startRecording, stopRecording, clearRecording } = useAudioRecorder();
+
+  const handleStart = async () => {
+    try {
+      await startRecording();
+      console.log('录音开始');
+    } catch (error) {
+      console.error('录音失败:', error.message);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      await stopRecording();
+      console.log('录音完成，音频URL:', recordingState.audioUrl);
+    } catch (error) {
+      console.error('停止录音失败:', error.message);
+    }
+  };
+
+  return (
+    <div>
+      <div>录音时长: {Math.floor(recordingState.duration / 60)}:{(recordingState.duration % 60).toString().padStart(2, '0')}</div>
+      <div>状态: {recordingState.isRecording ? '录音中...' : '准备就绪'}</div>
+      
+      <button onClick={handleStart} disabled={recordingState.isRecording}>
+        开始录音
+      </button>
+      
+      <button onClick={handleStop} disabled={!recordingState.isRecording}>
+        停止录音
+      </button>
+      
+      <button onClick={clearRecording} disabled={recordingState.isRecording}>
+        清除录音
+      </button>
+      
+      {recordingState.audioUrl && (
+        <audio controls src={recordingState.audioUrl} />
+      )}
+    </div>
+  );
+}
+```
+
+#### 1.1 音频录制Hook（兼容性）
+
+**⚠️ `useAudioRecording` 已废弃，仅为向后兼容保留。请使用 `useAudioRecorder`。**
 
 ```tsx
 import { useAudioRecording } from '@react-audio-studio/core';
 
-function RecordingApp() {
+function LegacyRecordingApp() {
   const recording = useAudioRecording({
     onError: (error) => console.error('录音错误:', error),
     onSuccess: (msg) => console.log('录音成功:', msg),
   });
 
   const handleStart = () => {
+    // 注意：这个API设计不够优雅，推荐使用useAudioRecorder
     recording.startRecording(() => {
-      console.log('开始录音...');
+      console.log('清除之前的音频');
     });
   };
 
@@ -71,12 +127,6 @@ function RecordingApp() {
 
   return (
     <div>
-      {/* 录音波形显示容器 */}
-      <div 
-        ref={recording.recordingWaveRef} 
-        style={{ height: '60px', background: '#f0f0f0' }}
-      />
-      
       <div>录音时长: {recording.formatRecordingTime(recording.recordingDuration)}</div>
       
       <button onClick={handleStart} disabled={recording.isRecording}>
@@ -561,6 +611,128 @@ yarn dev
 - [ ] VST插件支持
 - [ ] 移动端优化
 - [ ] 音频分析和频谱显示
+
+## 📋 最佳实践与设计理念
+
+### 🎯 设计理念
+
+本组件库遵循以下核心设计理念：
+
+#### 1. **UI无关性** - 真正脱离UI框架
+- 所有Hook都是纯逻辑封装，不包含任何UI样式
+- 组件提供基础样式，但完全可自定义
+- 可以与任意UI框架（Ant Design、Material-UI、Chakra UI等）配合使用
+- 支持完全自定义的UI实现
+
+#### 2. **Hook优先** - 灵活的API设计
+- 优先提供Hook API，组件作为Hook的示例实现
+- Hook具有完整的功能和状态管理
+- 支持组合使用多个Hook实现复杂功能
+- 提供清晰的TypeScript类型支持
+
+#### 3. **现代化API** - 符合React最佳实践
+- 使用Promise-based的异步API
+- 避免回调地狱，提供简洁的错误处理
+- 自包含的状态管理，减少外部依赖
+- 支持并发模式和Suspense
+
+### 📚 推荐使用方式
+
+#### ✅ 推荐的Hook选择
+
+1. **录音功能**：使用 `useAudioRecorder`（不是 `useAudioRecording`）
+2. **实时调音**：使用 `useToneTuning`作为核心功能
+3. **音频播放**：使用 `useAudioPlayer`
+4. **设备检测**：使用 `useDeviceAudioCapabilities`
+
+#### ✅ 推荐的组件使用
+
+```tsx
+// 使用组件 - 适合快速集成
+import { AudioRecorder, AudioTuner, AudioWaveform } from '@react-audio-studio/core';
+
+function QuickIntegration() {
+  return (
+    <>
+      <AudioRecorder onRecordingComplete={(url, blob) => { /* ... */ }} />
+      <AudioTuner audioUrl={audioUrl} onAudioChange={(url) => { /* ... */ }} />
+      <AudioWaveform audioUrl={audioUrl} onSegmentSelect={(segment) => { /* ... */ }} />
+    </>
+  );
+}
+
+// 使用Hook - 适合定制化需求
+import { useAudioRecorder, useToneTuning } from '@react-audio-studio/core';
+
+function CustomImplementation() {
+  const recorder = useAudioRecorder();
+  const tuner = useToneTuning(recorder.recordingState.audioUrl || '');
+  
+  // 完全自定义的UI和逻辑
+  return <YourCustomUI />;
+}
+```
+
+#### ⚠️ 需要注意的问题
+
+1. **录音Hook选择**：
+   - ❌ 避免使用 `useAudioRecording`（已废弃）
+   - ✅ 使用 `useAudioRecorder`（推荐）
+
+2. **实时调音体验**：
+   - `useToneTuning` 有防抖机制，参数变化后300ms才开始处理
+   - 处理状态显示最少500ms，避免闪烁
+   - 建议在UI中显示参数实时预览
+
+3. **内存管理**：
+   - 音频URL会自动清理，但在组件卸载时请确保调用清理函数
+   - 大文件处理时注意监听内存使用情况
+
+### 🔧 架构改进说明
+
+在2024年12月的更新中，我们进行了以下重要改进：
+
+#### 1. 修复录音功能的严重Bug ✅
+- **问题**: 录音时出现 "True is not a function" 错误
+- **原因**: `recorder-core` 库的 `open` 方法回调参数传递不正确
+- **修复**: 重构了 `useAudioRecorder` 中的回调函数参数，确保正确的成功/错误回调处理
+
+#### 2. 解决实时调音器状态切换问题 ✅
+- **问题**: `isProcessing` 状态在"处理中"和"处理完成"之间无限切换
+- **原因**: `useToneTuning` Hook 存在严重的循环依赖问题
+  - `useEffect` 监听 `params` → 调用 `processAudio` → 更新 `audio` 状态 → 触发重新渲染 → 再次执行 `useEffect`
+- **修复**: 
+  - 重构了整个 `useToneTuning` Hook 的架构
+  - 使用 `ref` 避免循环依赖
+  - 改进防抖机制，避免重复处理相同参数
+  - 添加处理任务队列，避免并发处理冲突
+  - 优化 `isProcessing` 状态管理，确保用户体验
+
+#### 3. 整体架构优化 ✅
+- **参数处理优化**: 添加参数缓存机制，避免相同参数重复处理
+- **内存管理改进**: 更好的 URL 清理和资源释放
+- **错误处理增强**: 更健壮的错误处理和恢复机制
+- **性能优化**: 减少不必要的重新渲染和计算
+
+#### 4. API 设计改进
+- **Hook 依赖简化**: 减少了 Hook 之间的复杂依赖关系
+- **状态管理清晰**: 每个 Hook 现在都有明确的职责和独立的状态管理
+- **调用时机优化**: 改进了副作用的执行时机，避免竞态条件
+
+### 🚀 修复后的优势
+
+1. **录音功能稳定**: 彻底解决了录音失败的问题
+2. **实时调音流畅**: 参数调整时音频处理更加稳定和高效
+3. **性能显著提升**: 避免了不必要的重复处理，减少CPU占用
+4. **用户体验改善**: 状态显示更加准确，避免了恼人的状态闪烁
+5. **代码质量提升**: 更清晰的架构，更容易维护和扩展
+
+### ⚠️ 重要提示
+
+修复后的版本完全向后兼容，但我们强烈建议：
+1. 使用 `useAudioRecorder` 而不是 `useAudioRecording`
+2. 充分利用 `useToneTuning` 的实时调音能力
+3. 注意正确的错误处理模式
 
 ## 📄 许可证
 
